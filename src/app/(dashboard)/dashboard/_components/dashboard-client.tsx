@@ -275,14 +275,14 @@ export function DashboardClient({ userName }: { userName: string }) {
             ["Closed", 18, 2],
           ] as const).map(([label, val, pct], i) => {
             const barH = Math.max(16, (pct / 100) * 90);
-            const colors = ["rgba(255,255,255,0.3)", "rgba(255,255,255,0.25)", tokens.blue, tokens.amber, tokens.emerald, tokens.emerald, tokens.emerald];
+            const colors = ["rgba(255,255,255,0.15)", "rgba(255,255,255,0.12)", `${tokens.blue}30`, `${tokens.amber}30`, tokens.emerald, tokens.emerald, tokens.emerald];
             const isHighlight = i >= 4;
             return (
               <div key={label} className="flex flex-1 flex-col items-center gap-1">
                 <div className={`text-sm font-bold tabular-nums ${isHighlight ? "text-emerald-light" : "text-text-primary"}`}>{val}</div>
                 <div
                   className="w-4/5 rounded-t transition-all duration-700"
-                  style={{ height: barH, background: isHighlight ? colors[i] : `${colors[i]}30` }}
+                  style={{ height: barH, background: colors[i] }}
                 />
                 <div className="text-center text-[9px] text-text-dim">{label}</div>
               </div>
