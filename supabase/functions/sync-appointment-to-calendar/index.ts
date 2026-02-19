@@ -17,6 +17,10 @@ interface CalendarEventResult {
 
 // ── Auth helper ────────────────────────────────────────────────────
 
+// Supabase Edge Functions now use sb_secret_ format for SUPABASE_SERVICE_ROLE_KEY,
+// but DB triggers send the legacy JWT from vault. We decode the JWT and check the
+// role claim instead of doing a direct string comparison.
+
 function verifyServiceAuth(req: Request): void {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) {
@@ -24,12 +28,28 @@ function verifyServiceAuth(req: Request): void {
   }
 
   const token = authHeader.replace("Bearer ", "");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const webhookSecret = Deno.env.get("N8N_WEBHOOK_SECRET");
 
-  if (token !== serviceRoleKey && token !== webhookSecret) {
-    throw new Error("Unauthorized");
+  // Check against N8N webhook secret (simple string match)
+  const webhookSecret = Deno.env.get("N8N_WEBHOOK_SECRET");
+  if (webhookSecret && token === webhookSecret) return;
+
+  // Check against new-format service role key
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (serviceRoleKey && token === serviceRoleKey) return;
+
+  // Decode JWT and verify it has service_role claim
+  // (handles legacy JWT sent by DB triggers via vault)
+  try {
+    const parts = token.split(".");
+    if (parts.length === 3) {
+      const payload = JSON.parse(atob(parts[1]));
+      if (payload.role === "service_role") return;
+    }
+  } catch {
+    // Not a valid JWT
   }
+
+  throw new Error("Unauthorized");
 }
 
 // ── Google Calendar helpers ────────────────────────────────────────

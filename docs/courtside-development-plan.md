@@ -890,6 +890,7 @@ Test complete workflows:
 - Transition animations matching prototype
 - Keyboard navigation
 - Focus management in modals
+- **Notification email/SMS templates:** Redesign the HTML email layout and copy for each notification type (appointment_booked, hot_lead_alert, sms_reply_received, campaign_completed, etc.). Also review SMS message copy for tone and brevity. Current templates in `deliver-notification` Edge Function are functional but generic.
 
 ### → 9.3 Seed Data Script (S)
 - Create a seed script that populates realistic demo data matching the prototype
@@ -937,8 +938,8 @@ Phase 5: Settings Pages [PARALLEL]        ├─ 6.7 Appointment management
     ├─ 5.6 Verification                        │
     ├─ 5.7 Integrations              Phase 7: Webhooks & Workflows [PARALLEL with 6]
     └─ 5.8 Compliance                     │
-         │                                ├─ 7.0 Notification delivery system ← [BUILD FIRST]
-         │                                │     (Edge Function + DB trigger)
+         │                                ├─ 7.0 Notification delivery system ← DONE ✓
+         │                                │     (Edge Function + DB triggers + vault)
          │                                │
          │                                ├─ 7.1 Retell post-call webhook (N8N, XL)
          │                                ├─ 7.2 Twilio SMS webhook (Next.js API route, M)
