@@ -39,6 +39,33 @@ These decisions were locked in during the planning phase:
 | Calls ↔ Leads | **Calls can exist without leads** | Especially inbound calls. But always try to link via phone number matching. |
 | Appointments | **Tied to lead records** | Demonstrates campaign effectiveness. Each appointment belongs to a lead. |
 
+### Architecture Revisions (Feb 2026)
+
+These updates refine the original decisions based on implementation experience:
+
+| Decision | Revision | Rationale |
+|---|---|---|
+| Notification delivery | **DB trigger on `notifications` table → `deliver-notification` Edge Function** | All workflows just INSERT into `notifications`. Delivery logic (Resend email, Twilio SMS to broker) is centralized. No duplication. In-app is automatic (row exists). |
+| N8N scope | **N8N only for scheduled jobs + complex branching** | Simple webhook→DB flows (Twilio SMS, Stripe) are Next.js API routes. N8N reserved for: Campaign Processor (cron), Retell Post-Call (8 outcome branches + AI node), Appointment Reminders (cron). |
+| Post-call AI analysis | **Done in N8N via AI node, not Retell built-in** | Retell sends raw transcript + metadata. N8N AI node extracts structured analysis (outcome, financials, appointment details, etc.). More control over prompt and output schema. |
+| Calendar sync | **Decoupled via DB trigger** | Post-call workflow inserts appointment. DB trigger on `appointments` fires `sync-appointment-to-calendar` Edge Function. Workflows never call calendar sync directly. |
+| Calendar ownership | **Per-organization** | One calendar connection per org (not per-user). Simplifies management for V1. |
+| Email service | **Resend** | Used for lead confirmations, broker notifications, appointment reminders. |
+| Notification channels | **In-app + Email + SMS (no push)** | No mobile app, so no push notifications. Broker opts in per event type via `notification_preferences`. |
+| Post-call scope (V1) | **Outbound campaigns only** | 7.1 Retell Post-Call Webhook handles outbound campaign calls only. Inbound call handling deferred. |
+
+### Deferred Features
+
+| Feature | Status | Notes |
+|---|---|---|
+| Google Calendar OAuth + API | Prep architecture now, implement later | Edge Function stubs + DB triggers ready. OAuth flow + Calendar API in separate phase. |
+| Outlook Calendar OAuth + API | Deferred | Same as Google — prep now, build later. |
+| Daily Summary Email | Deferred | Morning digest with yesterday's stats. Valuable but not core. |
+| Inbound Call Post-Call Analysis | Deferred | Contact matching by phone number, create unknown contacts from AI extraction. |
+| SMS Auto-Response / Chatbot | Future | Automated replies to inbound SMS. |
+| Payment Failure Feature Gating | Future | Restrict features on failed payment, grace periods. |
+| Usage-Based Billing | Future | Per-minute tracking for select customers. |
+
 ---
 
 ## 2. Entity Relationship Overview

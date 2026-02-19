@@ -4,7 +4,7 @@
 
 ---
 
-## Phase 0: Project Scaffolding [BLOCKER]
+## Phase 0: Project Scaffolding [BLOCKER] ✅
 
 - [x] **0.1 Create Project Folder & Initialize Next.js** (S)
   - [x] `npx create-next-app` with TypeScript, Tailwind, ESLint, App Router, src dir
@@ -135,44 +135,97 @@
 
 ---
 
-## Phase 5: Settings Pages — Frontend [PARALLEL]
+## Phase 5: Settings Pages — Frontend [PARALLEL] ✅
 
-- [ ] **5.1 Profile & Notifications** (M)
-- [ ] **5.2 Billing** (M)
-- [ ] **5.3 Organization** (S)
-- [ ] **5.4 Team Management** (M)
-- [ ] **5.5 Agents** (M)
-- [ ] **5.6 Verification** (M)
-- [ ] **5.7 Integrations** (S)
-- [ ] **5.8 Compliance** (M)
-
----
-
-## Phase 6: Backend — Edge Functions [PARALLEL]
-
-- [ ] **6.1 Call Initiation** (M)
-- [ ] **6.2 SMS Sending** (M)
-- [ ] **6.3 Lead Import** (L)
-- [ ] **6.4 Campaign Management** (M)
-- [ ] **6.5 Lead Status Management** (S)
-- [ ] **6.6 Action Item Resolution** (S)
-- [ ] **6.7 Appointment Management** (M)
-- [ ] **6.8 Calendar Availability Check** (L)
-- [ ] **6.9 Dashboard Stats** (M)
-- [ ] **6.10 Stripe Billing Portal** (S)
-- [ ] **6.11 Notifications** (S)
-- [ ] **6.12 Verification & Agent Requests** (S)
+- [x] **5.1 Profile & Notifications** (M)
+- [x] **5.2 Billing** (M)
+- [x] **5.3 Organization** (S)
+- [x] **5.4 Team Management** (M)
+- [x] **5.5 Agents** (M)
+- [x] **5.6 Verification** (M)
+- [x] **5.7 Integrations** (S)
+- [x] **5.8 Compliance** (M)
 
 ---
 
-## Phase 7: Backend — N8N Workflows [PARALLEL with Phase 6]
+## Phase 6: Backend — Edge Functions [PARALLEL] ✅
 
-- [ ] **7.1 Retell Post-Call Webhook** (XL)
-- [ ] **7.2 Twilio SMS Webhook** (M)
-- [ ] **7.3 Stripe Webhook** (M)
-- [ ] **7.4 Campaign Processor** (L)
-- [ ] **7.5 Calendar Sync Workflow** (M)
-- [ ] **7.6 Daily Summary & Appointment Reminders** (M)
+- [x] **6.1 Call Initiation** (M) — `initiate-call`
+- [x] **6.2 SMS Sending** (M) — `send-sms`
+- [x] **6.3 Lead Import** (L) — `import-leads`
+- [x] **6.4 Campaign Management** (M) — `create-campaign`, `update-campaign-status`
+- [x] **6.5 Lead Status Management** (S) — `update-lead-status`
+- [x] **6.6 Action Item Resolution** (S) — `resolve-action-item`
+- [x] **6.7 Appointment Management** (M) — `create-appointment`, `reschedule-appointment`, `cancel-appointment`
+- [x] **6.8 Calendar Availability Check** (L) — `check-availability` (stub — returns mock slots, real calendar API deferred)
+- [x] **6.9 Dashboard Stats** (M) — `dashboard-stats`
+- [x] **6.10 Stripe Billing Portal** (S) — `stripe-portal-url`
+- [x] **6.11 Notifications** (S) — `get-notifications`, `mark-notifications-read`
+- [x] **6.12 Verification & Agent Requests** (S) — `submit-verification`, `submit-agent-request`
+
+---
+
+## Phase 7: Backend — Webhooks, Workflows & Notification System 🔄 IN PROGRESS
+
+*Revised Feb 2026. Split across N8N, Next.js API routes, and Edge Functions. See `courtside-development-plan.md` Phase 7 for full details.*
+
+### Schema Migration (prerequisite)
+- [ ] DB trigger on `notifications` table → calls `deliver-notification` Edge Function
+- [ ] DB trigger on `appointments` table → calls `sync-appointment-to-calendar` Edge Function (stub)
+- [ ] Verify `integrations.config` JSONB supports calendar OAuth fields
+
+### 7.0 Notification Delivery System (Edge Function + DB trigger) — BUILD FIRST
+- [ ] `deliver-notification` Edge Function
+  - [ ] Read `notification_preferences` for user + event type
+  - [ ] Send email via Resend (if enabled)
+  - [ ] Send SMS to broker via Twilio (if enabled)
+  - [ ] In-app: automatic (row exists in `notifications` table)
+- [ ] DB trigger on `notifications` INSERT → calls Edge Function
+
+### 7.1 Retell Post-Call Webhook (N8N) — XL
+- [x] Create detailed markdown blueprint (`docs/n8n-blueprints/retell-post-call.md`)
+- [ ] Build workflow manually in n8n visual editor using blueprint
+- [ ] Configure credentials (OpenAI, Twilio, Resend, Supabase)
+- [ ] Test with real data
+- [ ] Activate
+
+### 7.2 Twilio SMS Webhook (Next.js API Route) — M
+- [ ] `src/app/api/webhooks/twilio/route.ts`
+- [ ] Twilio signature verification
+- [ ] Match org via to_number → phone_numbers table
+- [ ] Match contact by from_number + org_id
+- [ ] STOP keyword → DNC flow
+- [ ] Insert sms_messages + create action_item + insert notification
+
+### 7.3 Stripe Webhook (Next.js API Route) — M
+- [ ] `src/app/api/webhooks/stripe/route.ts`
+- [ ] Stripe signature verification (constructEvent)
+- [ ] checkout.session.completed → link Stripe customer to org
+- [ ] subscription created/updated/deleted → upsert subscriptions
+- [ ] invoice paid/failed → upsert invoices (failed → notify broker via email)
+- [ ] Log workflow_events
+
+### 7.4 Campaign Processor (N8N) — M
+- [x] Edge Function `get-next-campaign-leads` built (contains all business logic)
+- [x] Create detailed markdown blueprint (`docs/n8n-blueprints/campaign-processor.md`)
+- [ ] Build workflow manually in n8n visual editor using blueprint
+- [ ] Configure credentials
+- [ ] Test with real data
+- [ ] Activate
+
+### 7.5 Calendar Sync (Edge Function + DB Trigger) — PREP ONLY
+- [ ] `sync-appointment-to-calendar` Edge Function stub (logs event, no external API calls)
+- [ ] DB trigger on `appointments` INSERT/UPDATE/DELETE
+- [ ] `check-availability` Edge Function stub (already exists from Phase 6, verify interface)
+- [ ] **DEFERRED:** Google OAuth flow + Calendar API
+- [ ] **DEFERRED:** Outlook OAuth flow + Microsoft Graph API
+
+### 7.6 Appointment Reminders (N8N) — S
+- [x] Create detailed markdown blueprint (`docs/n8n-blueprints/appointment-reminders.md`)
+- [ ] Build workflow manually in n8n visual editor using blueprint
+- [ ] Configure credentials (Twilio, Resend, Supabase)
+- [ ] Test with real data
+- [ ] Activate
 
 ---
 
@@ -192,4 +245,18 @@
 
 ---
 
-*Last updated: 2026-02-18 — Phases 0, 1, 2, 3 & 4 complete*
+## Deferred to Post-Core (after Phases 7-9 complete)
+
+| Item | Description | Phase |
+|---|---|---|
+| Google Calendar Integration | OAuth flow, Calendar API read/write, connect button in Settings | Post-7.5 |
+| Outlook Calendar Integration | Microsoft OAuth, Graph API, calendar sync | Post-7.5 |
+| Daily Summary Email | Morning digest with yesterday's stats, HTML email templates | Post-7.6 |
+| Inbound Call Handling | Post-call webhook for inbound calls (contact matching by phone, create unknown contacts) | Post-7.1 |
+| SMS Auto-Response / Chatbot | Automated replies to inbound SMS, potential AI chatbot | Future |
+| Payment Failure Restrictions | Feature gating, banners, grace periods on failed payment | Future |
+| Usage-Based Billing | Per-minute tracking, Stripe usage reporting for select customers | Future |
+
+---
+
+*Last updated: 2026-02-19 — Phases 0-6 complete. Phase 7 in progress. N8N blueprints complete for 7.1, 7.4, 7.6 (ready to build manually).*

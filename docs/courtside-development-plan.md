@@ -510,74 +510,330 @@ Create helper types:
 
 ---
 
-## Phase 7: Backend — N8N Webhooks & Workflows [SEQUENTIAL within, PARALLEL with Phase 6]
-*N8N workflows depend on the database schema existing but NOT on the frontend.*
-*Build these in N8N's visual editor or export as JSON configs.*
+## Phase 7: Backend — Webhooks, Workflows & Notification System
 
-### → 7.1 Retell Post-Call Webhook (XL)
-*This is the most critical and complex workflow.*
+*Revised Feb 2026. Workflows are split across N8N (scheduling, complex branching), Next.js API routes (simple webhook→DB), and Edge Functions (auth-gated logic, calendar). This phase depends on the database schema but NOT on the frontend.*
+
+### Build Approach
+
+**N8N workflows (7.1, 7.4, 7.6):** Each workflow is documented as a detailed markdown blueprint with:
+- Step-by-step node configuration (node type, parameters, connections)
+- Code snippets for Code nodes (JavaScript)
+- JSON body templates for HTTP Request nodes
+- curl commands for testing each node independently
+- Connection diagrams showing the flow
+
+These blueprints are built **manually in the n8n visual editor**, not created via API/MCP. This avoids credential-linking issues and makes it easier to test, debug, and iterate.
+
+**Next.js API routes (7.2, 7.3):** Built as code in the codebase, committed to git.
+
+**Edge Functions (7.0, 7.5):** Built as Supabase Edge Functions in `supabase/functions/`, committed to git.
+
+### Technology Split
+
+| Workflow | Runtime | Rationale |
+|---|---|---|
+| 7.0 Notification Delivery | Edge Function + DB trigger | Shared by all workflows, no duplication |
+| 7.1 Retell Post-Call Webhook | N8N | Complex branching (8 outcomes), AI analysis node, visual debugging |
+| 7.2 Twilio SMS Webhook | Next.js API route | Simple linear flow, Twilio signature verification |
+| 7.3 Stripe Webhook | Next.js API route | Standard pattern, `constructEvent()` verification |
+| 7.4 Campaign Processor | N8N | Scheduled job + loop + external API calls |
+| 7.5 Calendar Sync | Edge Function + DB trigger | OAuth token management, Google/Outlook SDKs. **Prep only for now — full integration deferred.** |
+| 7.6 Appointment Reminders | N8N | Scheduled cron + SMS/email |
+
+### Schema Changes Required (Migration)
+
+Before building Phase 7 workflows:
+- Add `stripe_customer_id` (text, nullable) to `organizations` table
+- Add DB trigger on `notifications` table → calls `deliver-notification` Edge Function
+- Add DB trigger on `appointments` table → calls `sync-appointment-to-calendar` Edge Function (stub)
+- Verify `integrations.config` JSONB supports `access_token`, `refresh_token`, `calendar_id`, `token_expires_at`, `provider`
+
+---
+
+### → 7.0 Notification Delivery System [BUILD FIRST — other workflows depend on this]
+
+*Shared notification infrastructure. Every workflow just INSERTs into `notifications` table; delivery is automatic.*
+
+**Architecture:**
+```
+Any workflow → INSERT INTO notifications (type, title, body, user_id, reference_type, reference_id)
+  → DB trigger fires on INSERT
+  → Calls `deliver-notification` Edge Function
+  → Edge Function:
+      1. Read notification_preferences for this user + event type
+      2. In-app: already done (the row exists, bell icon reads it)
+      3. Email (if enabled): send via Resend
+      4. SMS to broker (if enabled): send via Twilio to users.phone
+```
+
+**Edge Function:** `supabase/functions/deliver-notification/index.ts`
+
+**Inputs:** The newly inserted `notifications` row (passed by DB trigger)
+
+**Logic:**
+1. Query `notification_preferences` for `user_id` + `type` mapping
+2. If email enabled → Resend API with notification title/body
+3. If SMS enabled → Twilio API to broker's phone number from `users.phone`
+4. Update `notifications` row with delivery metadata (optional, for debugging)
+
+**Dependencies:** Resend API key, Twilio credentials (already configured for SMS sending)
+
+---
+
+### → 7.1 Retell Post-Call Webhook (XL) — N8N
+
+*The most critical workflow. Outbound campaign calls only (for now). Inbound handling deferred.*
+
+**Trigger:** Retell sends webhook when call ends (`call_analyzed` event)
+
+**What Retell sends:** Raw transcript, recording URL, start/end timestamps, duration, agent_id, call_id, user sentiment, latency, cost, and dynamic variables. The `metadata` field contains `contact_id`, `campaign_id`, `org_id` (passed by Campaign Processor when initiating the call). **Retell does NOT send structured call analysis — we do that ourselves with an AI node.**
 
 **Flow:**
-1. Receive Retell webhook payload
-2. Parse `call_analysis` structured data (Section 7 of data model)
-3. Insert into `calls` table (map all fields)
-4. Match contact by phone number (create if inbound + unknown using `contact_info_extracted`)
-5. Match to lead if campaign context exists (via `agent_id` → `campaign` lookup)
-6. Update `leads.status` and `leads.last_call_outcome`
-7. Update campaign denormalized stats
-8. Update agent denormalized stats
-9. Log `workflow_events` entry
-10. **Branch by outcome:**
-    - Booked → Create appointment → Send confirmation SMS to lead → Send confirmation email to lead → Notify broker (SMS + email + push) → Queue calendar sync
-    - Interested → Create action item (hot_lead) → Notify broker
-    - Callback → Create action item (callback_request) → Notify broker
-    - Voicemail/No Answer → Increment retry count
-    - Not Interested → Skip future calls
-    - Wrong Number → Mark lead as bad
-    - DNC → Add to DNC list → Remove from all campaigns
-11. Insert `notifications` record for in-app notification bell
+```
+Retell webhook POST → N8N
+  1. Receive payload (transcript, recording, timestamps, metadata)
+  2. AI Node: Analyze transcript → structured JSON:
+     - outcome (booked/interested/callback/voicemail/no_answer/not_interested/wrong_number/dnc)
+     - outcome_confidence, outcome_reasoning
+     - appointment details (if booked): date, time, timezone, duration
+     - callback details (if callback): requested date/time
+     - summary + summary_one_line
+     - sentiment, engagement_level
+     - financial_details (industry-specific extraction)
+     - objections (with handling notes)
+     - follow_up (recommended action, unanswered questions, urgency)
+     - compliance flags (dnc_requested, profanity, recording_consent)
+  3. Insert into `calls` table:
+     - retell_call_id, org_id, lead_id, contact_id, agent_id, campaign_id (from metadata)
+     - direction: "outbound"
+     - caller_phone, callee_phone, started_at, ended_at, duration_seconds
+     - recording_url, transcript_text (from Retell)
+     - outcome, ai_summary, summary_one_line, sentiment, engagement_level, outcome_confidence (from AI)
+     - metadata JSONB: full AI analysis (financial_details, objections, topics, follow_up, compliance)
+  4. Update lead: status + last_call_outcome (using metadata.lead_id)
+  5. Update campaign denormalized stats (calls_made, calls_connected, bookings)
+  6. Update agent denormalized stats (total_calls, total_bookings, booking_rate)
+  7. Log workflow_events entry
+  8. BRANCH by AI-determined outcome:
 
-### → 7.2 Twilio SMS Webhook (M)
-1. Receive inbound SMS
-2. Match contact by from_number
-3. Check for STOP keyword → DNC flow
-4. Insert into `sms_messages`
-5. Create `action_items` (type: sms_reply)
-6. Notify broker
+     BOOKED:
+       → Insert into `appointments` (scheduled_at from AI, link to lead/contact/campaign/call)
+         (Calendar sync fires automatically via DB trigger — this workflow does NOT call it)
+       → Send confirmation SMS to lead via Twilio
+       → Send confirmation email to lead via Resend (if contact has email)
+       → INSERT INTO notifications (type: appointment_booked) → delivery handled by 7.0
 
-### → 7.3 Stripe Webhook (M)
-1. Receive Stripe events (subscription.updated, invoice.paid, etc.)
-2. Upsert into `subscriptions` table
-3. Upsert into `invoices` table
-4. Update usage counters
-5. Log `workflow_events`
+     INTERESTED:
+       → Create action_item (type: hot_lead, description includes AI summary)
+       → INSERT INTO notifications (type: hot_lead_alert)
 
-### → 7.4 Campaign Processor (L)
-*Scheduled workflow — runs every minute during active campaign windows.*
+     CALLBACK:
+       → Create action_item (type: callback_request, description: "Requested callback at [time]")
+       → INSERT INTO notifications (type: callback_requested)
 
-1. Query active campaigns where current time is within schedule window
-2. For each active campaign:
-   a. Pick next uncalled lead (status = new, retry_count < max_retries)
-   b. Check DNC list
-   c. Check daily call limit
-   d. Initiate call via Retell API
-   e. Log `workflow_events` entry
-3. Handle errors and retries
+     VOICEMAIL:
+       → Update lead: status → contacted, increment retry_count
+       → (Campaign Processor handles retry scheduling automatically)
 
-### → 7.5 Calendar Sync Workflow (M)
-*Triggered by appointment create/update/cancel events.*
+     NO_ANSWER:
+       → Increment lead retry_count (keep status as-is)
+       → (Campaign Processor handles retry)
 
-1. Receive appointment event (from Edge Function webhook or DB trigger)
-2. Check if org has connected calendar integration
-3. If Google Calendar: use Google Calendar API to create/update/delete event
-4. If Outlook: use Microsoft Graph API
-5. Update `appointments.calendar_event_id` and `calendar_synced_at`
+     NOT_INTERESTED:
+       → Update lead: status → contacted, last_call_outcome → not_interested
+       → (Lead skipped in future campaign calls — Edge Function filters by outcome)
 
-### → 7.6 Daily Summary & Appointment Reminders (M)
-*Scheduled workflows.*
+     WRONG_NUMBER:
+       → Update lead: status → bad_lead
 
-- **Daily Summary:** 8 AM per timezone → aggregate yesterday's stats → send email to users with digest enabled
-- **Appointment Reminders:** Check appointments for tomorrow → send reminder SMS to leads → send reminder email to leads
+     DNC:
+       → Update lead: status → bad_lead
+       → Insert into dnc_list (reason: verbal_dnc, call_id reference)
+       → Remove contact from all active campaigns (set other leads to bad_lead)
+       → Log workflow_event: dnc_auto_added
+```
+
+**AI Node Configuration:** Uses structured output prompt tailored per agent type (mortgage, insurance, commercial lending). The `agents.agent_type` field determines which extraction prompt variant is used. See data model Section 7.2 for the full JSON schema and Section 7.6 for industry-specific focus areas.
+
+---
+
+### → 7.2 Twilio SMS Webhook (M) — Next.js API Route
+
+*Simple inbound SMS handling. API route at `src/app/api/webhooks/twilio/route.ts`.*
+
+**Trigger:** Twilio POST when an inbound SMS arrives on a dedicated org number.
+
+**Flow:**
+```
+Twilio POST → /api/webhooks/twilio
+  1. Verify Twilio request signature (security)
+  2. Match org: to_number → phone_numbers table → org_id
+  3. Match contact: from_number + org_id → contacts table
+  4. Check for STOP/UNSUBSCRIBE keyword in body:
+     YES:
+       → Insert into dnc_list (reason: sms_stop, phone: from_number)
+       → Set all active leads for this contact to bad_lead
+       → Return TwiML opt-out confirmation response
+     NO:
+       → Insert into sms_messages (org_id, contact_id, direction: inbound, body, from_number, to_number)
+       → Create action_item (type: sms_reply, title: "[Contact Name] replied via SMS", description: message body)
+       → INSERT INTO notifications (type: sms_reply, reference_type: contact, reference_id: contact.id)
+  5. Return TwiML response (empty — no auto-reply for now)
+```
+
+**Auth:** Twilio signature verification using `TWILIO_AUTH_TOKEN` (not Supabase auth — this is an external webhook).
+
+**Dependencies:** `twilio` npm package for signature verification.
+
+---
+
+### → 7.3 Stripe Webhook (M) — Next.js API Route
+
+*Billing event sync. API route at `src/app/api/webhooks/stripe/route.ts`.*
+
+**Trigger:** Stripe POST on billing events.
+
+**Flow:**
+```
+Stripe POST → /api/webhooks/stripe
+  1. Verify signature: stripe.webhooks.constructEvent(body, sig, STRIPE_WEBHOOK_SECRET)
+  2. Switch on event.type:
+
+     checkout.session.completed:
+       → Extract customer ID from session
+       → Update organizations.stripe_customer_id (link Stripe to org)
+
+     customer.subscription.created / updated / deleted:
+       → Upsert subscriptions table (stripe_subscription_id, plan, status, current_period_start/end, usage limits)
+
+     invoice.paid:
+       → Upsert invoices table (stripe_invoice_id, amount, status: paid, pdf_url, period)
+
+     invoice.payment_failed:
+       → Upsert invoices table (status: failed)
+       → INSERT INTO notifications (type: payment_failed) → triggers email to broker via 7.0
+
+  3. Log workflow_events entry
+  4. Return 200
+```
+
+**Auth:** Stripe signature verification using `STRIPE_WEBHOOK_SECRET`.
+
+**Dependencies:** `stripe` npm package.
+
+---
+
+### → 7.4 Campaign Processor (L) — N8N — **DONE**
+
+**Architecture:** Edge Function `get-next-campaign-leads` contains all business logic (schedule windows, daily limits, DNC filtering, retry intervals, org concurrency). N8N just orchestrates.
+
+**Flow:**
+```
+Schedule Trigger (every 2 min)
+  → POST to get-next-campaign-leads Edge Function
+  → Flatten batches into individual leads (Code node)
+  → Loop over leads (SplitInBatches):
+      → POST to Retell API (create-phone-call) with metadata: {lead_id, campaign_id, org_id, contact_id}
+        SUCCESS → Insert minimal call record in `calls` (for concurrency tracking)
+                → Update lead (status: contacted, retry_count++, last_activity_at)
+                → Wait 2s → next lead
+        ERROR   → Update lead (retry_count++, last_activity_at) → Wait 2s → next lead
+```
+
+**Deliverable:** Detailed markdown blueprint in `docs/n8n-blueprints/campaign-processor.md` with node configs, code snippets, JSON body templates, and curl test commands. Build manually in n8n visual editor.
+
+**Note:** A draft workflow was created via MCP (ID: `bIyP0QwEe37K6vCA`) but should be rebuilt manually using the blueprint for proper credential configuration and testing.
+
+---
+
+### → 7.5 Calendar Sync (M) — Edge Functions + DB Triggers — **PREP ONLY**
+
+*Full Google/Outlook integration deferred to a separate phase. Build the architecture now.*
+
+#### 7.5a `check-availability` Edge Function (Stub)
+
+*Called by Retell agent mid-call to check broker's calendar.*
+
+**Interface (design now, implement later):**
+```
+POST /functions/v1/check-availability
+Body: { org_id, requested_datetime, timezone }
+
+Response: {
+  requested_slot_available: boolean,
+  alternatives: [
+    { datetime: "2026-02-19T10:30:00", available: true },
+    { datetime: "2026-02-19T14:00:00", available: true },
+    ...
+  ]
+}
+```
+
+**Logic (when implemented):**
+- Takes a requested datetime, checks availability for that day +/- 1 day (48-72 hour window, excluding past dates)
+- Reads org's calendar via Google Calendar API / Microsoft Graph (from `integrations` table credentials)
+- Also checks `appointments` table for existing Courtside bookings
+- Returns available/unavailable + alternative slots
+- Must be fast (<2s) — called during live conversation
+- Needs to be flexible with input queries (AI agent sends natural language converted to datetime)
+
+**For now:** Create the Edge Function with the interface, return mock available slots. Wire to real calendar API in the integration phase.
+
+#### 7.5b `sync-appointment-to-calendar` Edge Function + DB Trigger
+
+*Fires automatically when appointments are created, updated, or deleted.*
+
+**DB Trigger:** On `appointments` table INSERT/UPDATE/DELETE → calls Edge Function via `pg_net` or Supabase Database Webhook.
+
+**Interface:**
+```
+Receives: { appointment row, operation: insert|update|delete }
+
+Logic:
+  1. Check if org has connected calendar (integrations table, provider: google|outlook)
+  2. If no integration → skip silently
+  3. Refresh OAuth token if expired
+  4. Create/update/delete calendar event via Google Calendar API or Microsoft Graph
+  5. Update appointments.calendar_event_id + calendar_synced_at
+```
+
+**For now:** Create the Edge Function stub + DB trigger. Function logs the event but does not call external APIs. Wire to real calendar API in the integration phase.
+
+#### 7.5c Google & Outlook OAuth + Calendar API — **DEFERRED**
+
+*Separate phase after core workflows are solid.*
+
+- Google OAuth flow (connect button in Settings → Integrations)
+- Outlook/Microsoft OAuth flow
+- Token refresh logic
+- Calendar API read/write implementation
+- Testing with real calendars
+
+---
+
+### → 7.6 Appointment Reminders (S) — N8N
+
+*Daily summary email deferred. Build appointment reminders only.*
+
+**Trigger:** N8N cron, morning check
+
+**Flow:**
+```
+Schedule Trigger (morning, per timezone)
+  → Query appointments for today and tomorrow
+  → For each upcoming appointment:
+      → Send reminder SMS to lead via Twilio
+         "Reminder: You have an appointment [today/tomorrow] at [time] with [org_name]."
+      → Send reminder email to lead via Resend (if contact has email)
+  → (Optional) INSERT INTO notifications for broker awareness
+```
+
+**Dependencies:** Twilio credentials, Resend API key.
+
+#### 7.6a Daily Summary Email — **DEFERRED**
+
+*Future feature. Morning digest email with yesterday's stats (calls, bookings, pipeline movement). Requires HTML email templates and per-timezone scheduling. Add after core workflows are stable.*
 
 ---
 
@@ -673,19 +929,23 @@ Phase 4: Core Pages [PARALLEL]          Phase 6: Edge Functions [PARALLEL]
     └─ 4.5 Calendar                        ├─ 6.5 Lead status
          │                                 ├─ 6.6 Action item resolution
 Phase 5: Settings Pages [PARALLEL]        ├─ 6.7 Appointment management
-    ├─ 5.1 Profile & Notifications         ├─ 6.8 Calendar availability
+    ├─ 5.1 Profile & Notifications         ├─ 6.8 Calendar availability (stub)
     ├─ 5.2 Billing                         ├─ 6.9 Dashboard stats
     ├─ 5.3 Organization                    ├─ 6.10 Stripe portal
     ├─ 5.4 Team                            ├─ 6.11 Notifications
     ├─ 5.5 Agents                          └─ 6.12 Verification + agents
     ├─ 5.6 Verification                        │
-    ├─ 5.7 Integrations              Phase 7: N8N Workflows [PARALLEL with 6]
-    └─ 5.8 Compliance                     ├─ 7.1 Retell post-call webhook
-         │                                ├─ 7.2 Twilio SMS webhook
-         │                                ├─ 7.3 Stripe webhook
-         ├────────────────────────────────├─ 7.4 Campaign processor
-         │                                ├─ 7.5 Calendar sync
-         │                                └─ 7.6 Daily summary + reminders
+    ├─ 5.7 Integrations              Phase 7: Webhooks & Workflows [PARALLEL with 6]
+    └─ 5.8 Compliance                     │
+         │                                ├─ 7.0 Notification delivery system ← [BUILD FIRST]
+         │                                │     (Edge Function + DB trigger)
+         │                                │
+         │                                ├─ 7.1 Retell post-call webhook (N8N, XL)
+         │                                ├─ 7.2 Twilio SMS webhook (Next.js API route, M)
+         │                                ├─ 7.3 Stripe webhook (Next.js API route, M)
+         ├────────────────────────────────├─ 7.4 Campaign processor (N8N, DONE ✓)
+         │                                ├─ 7.5 Calendar sync (Edge Function, PREP ONLY)
+         │                                └─ 7.6 Appointment reminders (N8N, S)
          │                                     │
          └─────────────┬───────────────────────┘
                        │

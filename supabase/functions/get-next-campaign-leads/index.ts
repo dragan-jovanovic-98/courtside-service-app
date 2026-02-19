@@ -12,8 +12,10 @@ const MAX_ORG_CONCURRENCY = 8;
 interface CampaignBatch {
   campaign_id: string;
   campaign_name: string;
+  org_id: string;
   agent_id: string;
   retell_agent_id: string;
+  from_number: string;
   leads: LeadToCall[];
 }
 
@@ -218,6 +220,35 @@ serve(async (req) => {
           continue;
         }
 
+        // ── Get outbound phone number ──
+        const { data: phoneNum } = await supabase
+          .from("phone_numbers")
+          .select("number")
+          .eq("campaign_id", campaign.id)
+          .limit(1)
+          .maybeSingle();
+
+        let fromNumber = phoneNum?.number;
+
+        if (!fromNumber) {
+          const { data: orgPhone } = await supabase
+            .from("phone_numbers")
+            .select("number")
+            .eq("org_id", orgId)
+            .limit(1)
+            .maybeSingle();
+
+          fromNumber = orgPhone?.number;
+        }
+
+        if (!fromNumber) {
+          skippedReasons.push({
+            campaign_id: campaign.id,
+            reason: "No outbound phone number available",
+          });
+          continue;
+        }
+
         // ── Calculate batch size ──
         const batchSize = Math.min(orgSlotsRemaining, dailyRemaining);
 
@@ -293,8 +324,10 @@ serve(async (req) => {
           allBatches.push({
             campaign_id: campaign.id,
             campaign_name: campaign.name,
+            org_id: orgId,
             agent_id: agent.id,
             retell_agent_id: agent.retell_agent_id,
+            from_number: fromNumber,
             leads: leadsToCall,
           });
 
