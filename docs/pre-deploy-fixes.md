@@ -6,7 +6,7 @@
 
 ## Auth / Onboarding
 
-- [ ] **Supabase Auth email templates** — Default emails are unstyled and not production-ready. Need to customize confirmation email, magic link email, and password reset email templates in Supabase dashboard (Authentication → Email Templates). Brand with Courtside AI logo, colors, and copy.
+- [ ] **Supabase Auth email templates** — Branded HTML templates created in `docs/email-templates.md`. Need to paste templates 1–5 into Supabase dashboard (Authentication → Email Templates). Notification email template (#6–10) already updated in `deliver-notification` edge function code.
 
 ---
 

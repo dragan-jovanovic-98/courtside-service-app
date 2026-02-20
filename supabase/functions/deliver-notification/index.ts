@@ -143,17 +143,58 @@ async function sendSms(toPhone: string, body: string): Promise<void> {
 
 // ── HTML email template ────────────────────────────────────────────
 
-function buildNotificationEmail(title: string, body: string): string {
-  return `
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
-      <div style="background: #0e1117; border-radius: 8px; padding: 24px; color: #e8eaed;">
-        <h2 style="margin: 0 0 8px 0; font-size: 16px; color: #34d399;">${title}</h2>
-        <p style="margin: 0; font-size: 14px; line-height: 1.5; color: rgba(255,255,255,0.7);">${body}</p>
-        <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.06); margin: 16px 0;" />
-        <p style="margin: 0; font-size: 11px; color: rgba(255,255,255,0.3);">Courtside AI — You can manage notification preferences in Settings.</p>
-      </div>
-    </div>
-  `;
+function buildNotificationEmail(title: string, body: string, type: string): string {
+  const accentColors: Record<string, string> = {
+    appointment_booked: "#34d399",
+    hot_lead_alert: "#f87171",
+    sms_reply: "#60a5fa",
+    payment_failed: "#fbbf24",
+    campaign_completed: "#a78bfa",
+  };
+  const accent = accentColors[type] || "#34d399";
+  const appUrl = Deno.env.get("APP_URL") || "https://court-side.ai";
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /></head>
+<body style="margin: 0; padding: 0; background-color: #0a0d12; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #0a0d12; padding: 40px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width: 480px; width: 100%;">
+          <tr>
+            <td align="center" style="padding: 0 0 32px 0;">
+              <span style="font-family: Georgia, 'Times New Roman', serif; font-size: 20px; font-weight: 600; color: #e8eaed; letter-spacing: 0.01em;">Courtside AI</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #0e1117; border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 0; overflow: hidden;">
+              <div style="height: 3px; background-color: ${accent};"></div>
+              <div style="padding: 32px 32px 36px 32px;">
+                <h1 style="margin: 0 0 12px 0; font-size: 18px; font-weight: 700; color: ${accent};">${title}</h1>
+                <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.65; color: rgba(255,255,255,0.6);">${body}</p>
+                <table role="presentation" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="border-radius: 8px; background-color: rgba(255,255,255,0.06);">
+                      <a href="${appUrl}/dashboard" target="_blank" style="display: inline-block; padding: 10px 22px; font-size: 13px; font-weight: 600; color: #e8eaed; text-decoration: none;">Open Dashboard</a>
+                    </td>
+                  </tr>
+                </table>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding: 24px 0 0 0;">
+              <p style="margin: 0; font-size: 11px; color: rgba(255,255,255,0.25); line-height: 1.6;">Courtside AI &middot; Intelligent voice agents for service businesses</p>
+              <p style="margin: 4px 0 0 0; font-size: 11px; color: rgba(255,255,255,0.15);">Manage your notification preferences in Settings</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
 }
 
 // ── Main handler ───────────────────────────────────────────────────
@@ -208,7 +249,7 @@ serve(async (req) => {
     if (typePrefs.email && user.email) {
       try {
         const userName = [user.first_name, user.last_name].filter(Boolean).join(" ") || "User";
-        const htmlBody = buildNotificationEmail(record.title, record.body);
+        const htmlBody = buildNotificationEmail(record.title, record.body, record.type);
         await sendEmail(user.email, userName, record.title, htmlBody);
         deliveryResults.push({ channel: "email", status: "sent" });
       } catch (err) {
