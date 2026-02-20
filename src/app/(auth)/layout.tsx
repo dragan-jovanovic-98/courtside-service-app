@@ -10,7 +10,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
             Courtside AI
           </h1>
           <p className="mt-1 text-xs text-text-dim">
-            AI-powered voice agents for financial services
+            AI-powered voice agents for service businesses
           </p>
         </div>
 

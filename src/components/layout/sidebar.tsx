@@ -10,8 +10,10 @@ import {
   Phone,
   CalendarDays,
   Settings,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { signOut } from "@/lib/supabase/auth";
 
 const navItems = [
   { href: "/dashboard", label: "Home", icon: Home },
@@ -101,7 +103,7 @@ export function Sidebar({ userName, userInitials, planName, onNavigate }: Sideba
           <div className="flex size-[26px] shrink-0 items-center justify-center rounded-full bg-emerald-bg-strong text-[9px] font-bold text-emerald-light">
             {userInitials}
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="truncate text-[11px] text-text-muted">
               {userName}
             </div>
@@ -109,6 +111,13 @@ export function Sidebar({ userName, userInitials, planName, onNavigate }: Sideba
               <div className="text-[10px] text-text-dim">{planName}</div>
             )}
           </div>
+          <button
+            onClick={() => signOut()}
+            className="shrink-0 rounded-md p-1 text-text-dim transition-colors hover:bg-surface-card hover:text-text-muted"
+            title="Sign out"
+          >
+            <LogOut size={14} />
+          </button>
         </div>
       </div>
     </aside>

@@ -950,6 +950,141 @@ Test complete workflows:
 
 ---
 
+## Phase 10: Admin Panel [SEQUENTIAL]
+
+*Internal-only dashboard for the Courtside team to manage clients, review verifications, provision agents/phone numbers, and monitor the platform. Lives at `/admin` in the same Next.js app, protected by a `super_admin` role check.*
+
+### Prerequisites (Migration)
+
+- Add `'super_admin'` to the `users.role` enum (currently `owner/admin/member`)
+- Create `phone_numbers` table:
+  ```
+  phone_numbers
+  ├── id (uuid, PK)
+  ├── org_id (uuid, FK → organizations, nullable — unassigned numbers have no org)
+  ├── agent_id (uuid, FK → agents, nullable)
+  ├── number (text, unique) — E.164 format e.g. +18005551234
+  ├── label (text, nullable) — friendly name e.g. "Main Line"
+  ├── provider (text, default 'twilio') — twilio, retell, etc.
+  ├── status (text, default 'active') — active, inactive, porting
+  ├── capabilities (jsonb, default '{}') — {sms: true, voice: true, mms: false}
+  ├── created_at (timestamptz)
+  └── updated_at (timestamptz)
+  ```
+- RLS on `phone_numbers`: org users can read their own org's numbers. Super admins can read/write all.
+- Admin RLS policy pattern: `USING (EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'super_admin'))`
+
+### → 10.1 Admin Auth & Layout (M)
+
+**Auth:**
+- Middleware check on `/admin/*` routes — redirect non-super_admin users to `/dashboard`
+- Server-side `getAdminUser()` helper that validates `role = 'super_admin'`
+- No separate login — super admins use the same login page, middleware routes them
+
+**Layout:**
+- `src/app/(admin)/layout.tsx` — admin shell with its own sidebar
+- Admin sidebar nav: Organizations, Verifications, Agents, Phone Numbers, Call Monitor, Billing, System
+- Visual distinction from client dashboard (e.g., red/orange accent instead of emerald, "ADMIN" badge)
+
+**Files:**
+- `src/app/(admin)/layout.tsx`
+- `src/app/(admin)/admin/page.tsx` — admin home/overview
+- `src/components/layout/admin-sidebar.tsx`
+- `src/lib/queries/admin.ts` — admin query functions (service-level, no org scoping)
+- `src/middleware.ts` — update to check admin role for `/admin` routes
+
+### → 10.2 Organizations Overview (M)
+
+**Page:** `/admin/organizations`
+
+**Features:**
+- Table of all organizations: name, owner email, plan/status, agent count, phone number count, total calls, created date
+- Search/filter by name, status, plan
+- Click row → org detail page
+
+**Org Detail Page:** `/admin/organizations/[id]`
+- Org info card (name, owner, created, Stripe customer ID)
+- Subscription status + plan
+- Team members list
+- Agents assigned to this org
+- Phone numbers assigned to this org
+- Recent calls (last 20)
+- Quick actions: assign agent, assign phone number, update subscription notes
+
+### → 10.3 Verification Review (M)
+
+**Page:** `/admin/verifications`
+
+**Features:**
+- Table of all verification submissions: org name, status (pending/in_progress/verified/rejected), submitted date
+- Filter by status
+- Click row → review panel with all submitted business details
+- Actions: "Approve" (sets status → verified, reviewed_at → now) and "Reject" (with reason field)
+- On approval/rejection → insert notification for org users
+
+### → 10.4 Agent Management (M)
+
+**Page:** `/admin/agents`
+
+**Features:**
+- Table of all agents across all orgs: name, org, direction, status, Retell agent ID, assigned phone number, campaign count
+- "New Agent" button → form:
+  - Select org (dropdown of all orgs)
+  - Agent name, direction (inbound/outbound), voice description
+  - Retell Agent ID (pasted in after creating in Retell)
+  - Assign phone number (dropdown of available numbers, filtered by org)
+  - Status (active/inactive)
+- Edit existing agent (same form, pre-filled)
+- View pending agent requests from clients (from `submit-agent-request` edge function)
+
+### → 10.5 Phone Number Management (S)
+
+**Page:** `/admin/phone-numbers`
+
+**Features:**
+- Table of all phone numbers: number, label, org (or "Unassigned"), agent, status, capabilities
+- "Add Number" button → form:
+  - Phone number (E.164 format, manually entered after purchasing in Twilio)
+  - Label
+  - Assign to org (optional)
+  - Assign to agent (optional, filtered by selected org)
+  - Status, capabilities checkboxes
+- Reassign number to different org/agent
+- Deactivate number
+
+### → 10.6 Call Monitor (L)
+
+**Page:** `/admin/calls`
+
+**Features:**
+- Global call log across all orgs (most recent first)
+- Columns: timestamp, org, contact name/number, agent, direction, duration, outcome, sentiment
+- Filters: org, date range, outcome, direction
+- Click row → call detail with full AI summary, metadata, recording link (if available from Retell)
+- Stats bar at top: total calls today, avg duration, outcome distribution
+
+### → 10.7 Billing Oversight (M)
+
+**Page:** `/admin/billing`
+
+**Features:**
+- Table of all orgs with subscription info: org name, plan, status, MRR amount, current period, Stripe customer ID
+- Quick link to Stripe dashboard for each customer
+- Summary stats: total MRR, active subscriptions count, trial count, churned this month
+- Recent failed payments list with notification status
+
+### → 10.8 System Health (S)
+
+**Page:** `/admin/system`
+
+**Features:**
+- Edge Function status: list all deployed functions, last invocation time, error rate (from Supabase logs if available)
+- N8N workflow status: list workflows with active/inactive state, last execution time (via N8N API)
+- Recent `workflow_events` table entries (last 50) — shows webhook processing history
+- Quick links: Supabase dashboard, N8N dashboard, Stripe dashboard, Retell dashboard, Twilio console
+
+---
+
 ## Phase Summary — Dependency Graph
 
 ```
@@ -1010,6 +1145,17 @@ Phase 9: Testing & Polish ──────────────────
     ├─ 9.1 E2E flow testing
     ├─ 9.2 UI polish
     └─ 9.3 Seed data script
+                      │
+Phase 10: Admin Panel ─────────────────────────────── [SEQUENTIAL, after Phase 9]
+    ├─ 10.0 Migration (super_admin role + phone_numbers table)
+    ├─ 10.1 Admin auth & layout
+    ├─ 10.2 Organizations overview + detail
+    ├─ 10.3 Verification review
+    ├─ 10.4 Agent management
+    ├─ 10.5 Phone number management
+    ├─ 10.6 Call monitor
+    ├─ 10.7 Billing oversight
+    └─ 10.8 System health
 ```
 
 ---

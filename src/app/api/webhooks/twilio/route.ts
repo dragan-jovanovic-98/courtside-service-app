@@ -49,12 +49,15 @@ export async function POST(request: NextRequest) {
     params[key] = value.toString();
   });
 
-  // Verify Twilio signature
-  const signature = request.headers.get("X-Twilio-Signature") ?? "";
-  const url = request.url;
-  if (!verifyTwilioSignature(url, params, signature, authToken)) {
-    console.error("Invalid Twilio signature");
-    return twiml();
+  // Verify Twilio signature (skip in local dev with SKIP_TWILIO_SIGNATURE_CHECK=true)
+  // TODO: Remove SKIP_TWILIO_SIGNATURE_CHECK before production
+  if (process.env.SKIP_TWILIO_SIGNATURE_CHECK !== "true") {
+    const signature = request.headers.get("X-Twilio-Signature") ?? "";
+    const url = request.url;
+    if (!verifyTwilioSignature(url, params, signature, authToken)) {
+      console.error("Invalid Twilio signature");
+      return twiml();
+    }
   }
 
   const from = params.From; // caller's number (E.164)

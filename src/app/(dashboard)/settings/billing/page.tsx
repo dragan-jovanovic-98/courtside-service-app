@@ -1,5 +1,12 @@
+import { getBillingData } from "@/lib/queries/settings";
 import { BillingClient } from "./_components/billing-client";
 
-export default function BillingPage() {
-  return <BillingClient />;
+export default async function BillingPage() {
+  const data = await getBillingData();
+  return (
+    <BillingClient
+      subscription={data?.subscription ?? null}
+      invoices={data?.invoices ?? []}
+    />
+  );
 }

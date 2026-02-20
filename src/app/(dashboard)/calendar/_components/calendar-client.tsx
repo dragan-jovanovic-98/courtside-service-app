@@ -331,23 +331,9 @@ export function CalendarClient({
 
           <div className="flex flex-col gap-1.5">
             <Button
-              className="justify-center gap-1.5 bg-emerald-dark text-xs text-white hover:bg-emerald-dark/90"
-              disabled={actionBusy}
-              onClick={async () => {
-                if (!selAppt.agent_id) {
-                  alert("No agent assigned to this appointment's campaign");
-                  return;
-                }
-                setActionBusy(true);
-                const { error } = await callEdgeFunction("initiate-call", {
-                  agent_id: selAppt.agent_id,
-                  lead_id: selAppt.lead_id,
-                  contact_id: selAppt.contact_id,
-                });
-                setActionBusy(false);
-                if (error) alert(`Call failed: ${error}`);
-                else alert("Call initiated");
-              }}
+              className="justify-center gap-1.5 text-xs opacity-50 cursor-not-allowed"
+              disabled
+              title="Coming soon — will allow you to call the contact directly from your phone"
             >
               <Phone size={12} /> Call Now
             </Button>
@@ -369,7 +355,7 @@ export function CalendarClient({
                       const { error } = await callEdgeFunction("reschedule-appointment", {
                         appointment_id: selAppt.id,
                         scheduled_at: new Date(rescheduleValue).toISOString(),
-                      });
+                      }, "PATCH");
                       setActionBusy(false);
                       if (error) alert(`Reschedule failed: ${error}`);
                       else {
@@ -413,7 +399,7 @@ export function CalendarClient({
                 setActionBusy(true);
                 const { error } = await callEdgeFunction("cancel-appointment", {
                   appointment_id: selAppt.id,
-                });
+                }, "PATCH");
                 setActionBusy(false);
                 if (error) alert(`Cancel failed: ${error}`);
                 else {

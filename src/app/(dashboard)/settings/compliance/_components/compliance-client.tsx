@@ -4,14 +4,66 @@ import { useState } from "react";
 import { Check, Upload, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SettingsToggle } from "@/components/ui/settings-toggle";
-import { mockComplianceStats } from "@/lib/mock-data";
+import { updateComplianceSettings } from "@/lib/actions/settings";
 
-export function ComplianceClient() {
-  const [casl, setCasl] = useState(true);
-  const [smsStop, setSmsStop] = useState(true);
-  const [verbalDnc, setVerbalDnc] = useState(true);
-  const [emailUnsub, setEmailUnsub] = useState(true);
-  const [dncRegistry, setDncRegistry] = useState(true);
+interface ComplianceProps {
+  dncCount: number;
+  dncLastUpdated: string | null;
+  dncAutoAdded: number;
+  settings: {
+    casl_enabled: boolean;
+    auto_sms_stop: boolean;
+    auto_verbal_dnc: boolean;
+    auto_email_unsub: boolean;
+    national_dnc_check: boolean;
+    terms_accepted_at: string | null;
+  } | null;
+}
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "Never";
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+export function ComplianceClient({
+  dncCount,
+  dncLastUpdated,
+  dncAutoAdded,
+  settings,
+}: ComplianceProps) {
+  const [casl, setCasl] = useState(settings?.casl_enabled ?? true);
+  const [smsStop, setSmsStop] = useState(settings?.auto_sms_stop ?? true);
+  const [verbalDnc, setVerbalDnc] = useState(settings?.auto_verbal_dnc ?? true);
+  const [emailUnsub, setEmailUnsub] = useState(settings?.auto_email_unsub ?? true);
+  const [dncRegistry, setDncRegistry] = useState(settings?.national_dnc_check ?? true);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  const handleToggle = (setter: (v: boolean) => void) => (val: boolean) => {
+    setter(val);
+    setDirty(true);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    await updateComplianceSettings({
+      casl_enabled: casl,
+      auto_sms_stop: smsStop,
+      auto_verbal_dnc: verbalDnc,
+      auto_email_unsub: emailUnsub,
+      national_dnc_check: dncRegistry,
+    });
+    setSaving(false);
+    setDirty(false);
+  };
+
+  const tosDate = settings?.terms_accepted_at
+    ? formatDate(settings.terms_accepted_at)
+    : null;
 
   return (
     <div className="max-w-[540px]">
@@ -23,8 +75,7 @@ export function ComplianceClient() {
             Compliant
           </div>
           <div className="text-[11px] text-text-dim">
-            All compliance requirements met &middot; Last reviewed{" "}
-            {mockComplianceStats.lastReviewed}
+            All compliance requirements met
           </div>
         </div>
       </div>
@@ -37,7 +88,7 @@ export function ComplianceClient() {
               Terms of Service
             </div>
             <div className="flex items-center gap-1.5 text-xs text-emerald-light">
-              <Check size={12} /> Accepted {mockComplianceStats.tosAcceptedDate}
+              <Check size={12} /> {tosDate ? `Accepted ${tosDate}` : "Accepted on signup"}
             </div>
           </div>
           <Button
@@ -59,7 +110,7 @@ export function ComplianceClient() {
           label="CASL Compliance"
           subtitle="Canadian Anti-Spam Legislation compliance for messages"
           enabled={casl}
-          onChange={setCasl}
+          onChange={handleToggle(setCasl)}
         />
         <div className="mt-2.5 rounded-lg bg-[rgba(255,255,255,0.02)] px-3.5 py-2.5">
           <div className="mb-1 text-xs text-text-muted">
@@ -101,14 +152,18 @@ export function ComplianceClient() {
             <Button
               variant="ghost"
               size="sm"
-              className="gap-1 border border-border-default bg-[rgba(255,255,255,0.03)] text-[11px] text-text-muted hover:bg-[rgba(255,255,255,0.06)]"
+              className="gap-1 border border-border-default bg-[rgba(255,255,255,0.03)] text-[11px] text-text-muted hover:bg-[rgba(255,255,255,0.06)] opacity-50 cursor-not-allowed"
+              disabled
+              title="Coming soon"
             >
               <Upload size={11} /> Upload CSV
             </Button>
             <Button
               variant="ghost"
               size="sm"
-              className="gap-1 border border-border-default bg-[rgba(255,255,255,0.03)] text-[11px] text-text-muted hover:bg-[rgba(255,255,255,0.06)]"
+              className="gap-1 border border-border-default bg-[rgba(255,255,255,0.03)] text-[11px] text-text-muted hover:bg-[rgba(255,255,255,0.06)] opacity-50 cursor-not-allowed"
+              disabled
+              title="Coming soon"
             >
               <Plus size={11} /> Add
             </Button>
@@ -117,9 +172,9 @@ export function ComplianceClient() {
         <div className="grid grid-cols-3 gap-2">
           {(
             [
-              [mockComplianceStats.dncCount, "Numbers Blocked"],
-              [mockComplianceStats.dncLastUpdated, "Last Updated"],
-              [mockComplianceStats.dncAutoAdded, "Auto-Added"],
+              [dncCount, "Numbers Blocked"],
+              [formatDate(dncLastUpdated), "Last Updated"],
+              [dncAutoAdded, "Auto-Added"],
             ] as const
           ).map(([val, label]) => (
             <div
@@ -144,26 +199,35 @@ export function ComplianceClient() {
           label='SMS "STOP" → Remove from all campaigns'
           subtitle="Instant removal when keyword detected"
           enabled={smsStop}
-          onChange={setSmsStop}
+          onChange={handleToggle(setSmsStop)}
         />
         <SettingsToggle
           label="Verbal DNC → Auto-flag on calls"
           subtitle="AI detects do-not-call requests during conversation"
           enabled={verbalDnc}
-          onChange={setVerbalDnc}
+          onChange={handleToggle(setVerbalDnc)}
         />
         <SettingsToggle
           label="Email Unsubscribe → Remove from sequences"
           subtitle="Honors unsubscribe links automatically"
           enabled={emailUnsub}
-          onChange={setEmailUnsub}
+          onChange={handleToggle(setEmailUnsub)}
         />
         <SettingsToggle
           label="National DNC Registry Check"
           subtitle="Cross-reference with Canadian DNCL before calling"
           enabled={dncRegistry}
-          onChange={setDncRegistry}
+          onChange={handleToggle(setDncRegistry)}
         />
+        {dirty && (
+          <Button
+            onClick={handleSave}
+            disabled={saving}
+            className="mt-3 w-full justify-center bg-emerald-dark text-white hover:bg-emerald-dark/90"
+          >
+            {saving ? "Saving..." : "Save Settings"}
+          </Button>
+        )}
       </div>
     </div>
   );

@@ -102,24 +102,25 @@ export function CampaignWizard({ agents }: { agents: AgentOption[] }) {
 
     try {
       // 1. Create campaign as draft
-      const schedulePayload = schedule
-        .filter((d) => d.on)
-        .map((d) => ({
-          day_of_week: d.day.toLowerCase(),
-          slots: d.slots.map(([start, end]) => ({ start_time: start, end_time: end })),
-        }));
+      const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+      const schedulesPayload = schedule.map((d) => ({
+        day_of_week: dayNames.indexOf(d.day),
+        enabled: d.on,
+        slots: d.on
+          ? d.slots.map(([start, end]) => ({ start, end }))
+          : [],
+      }));
 
       const { data: campaign, error: createErr } = await callEdgeFunction<{ id: string }>(
         "create-campaign",
         {
           name: campaignName.trim(),
           agent_id: agentId,
-          status: "draft",
-          daily_limit: dailyLimit,
+          daily_call_limit: dailyLimit,
           max_retries: maxRetries,
           timezone,
           end_date: endDate || null,
-          schedule: schedulePayload,
+          schedules: schedulesPayload,
         }
       );
 
@@ -133,7 +134,7 @@ export function CampaignWizard({ agents }: { agents: AgentOption[] }) {
       if (csvText) {
         const { error: importErr } = await callEdgeFunction("import-leads", {
           campaign_id: campaign.id,
-          csv_text: csvText,
+          csv: csvText,
         });
         if (importErr) {
           setError(`Campaign created but lead import failed: ${importErr}`);

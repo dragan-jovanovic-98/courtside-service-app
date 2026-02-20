@@ -1,8 +1,5 @@
 # Supabase CLI config — https://supabase.com/docs/guides/cli/config
 
-[project]
-id = ""
-
 [api]
 enabled = true
 port = 54321
@@ -26,5 +23,17 @@ site_url = "http://localhost:3000"
 enable_signup = true
 enable_confirmations = false
 
-[functions]
-verify_jwt = true
+[functions.deliver-notification]
+verify_jwt = false
+
+[functions.sync-appointment-to-calendar]
+verify_jwt = false
+
+[functions.get-next-campaign-leads]
+verify_jwt = false
+
+[functions.send-email]
+verify_jwt = false
+
+[functions.send-sms]
+verify_jwt = false

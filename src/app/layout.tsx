@@ -19,7 +19,7 @@ const lora = Lora({
 export const metadata: Metadata = {
   title: "Courtside AI",
   description:
-    "AI-powered voice agents for financial services professionals",
+    "AI-powered voice agents for service businesses",
 };
 
 export default function RootLayout({

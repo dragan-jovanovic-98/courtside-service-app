@@ -123,6 +123,44 @@ export async function inviteTeamMember(formData: FormData) {
   return { success: true };
 }
 
+export async function updateComplianceSettings(settings: {
+  casl_enabled: boolean;
+  auto_sms_stop: boolean;
+  auto_verbal_dnc: boolean;
+  auto_email_unsub: boolean;
+  national_dnc_check: boolean;
+}) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: userRow } = await supabase
+    .from("users")
+    .select("org_id")
+    .eq("id", user.id)
+    .single();
+
+  if (!userRow) return { error: "User not found" };
+
+  const { error } = await supabase
+    .from("compliance_settings")
+    .upsert(
+      {
+        org_id: userRow.org_id,
+        ...settings,
+      },
+      { onConflict: "org_id" }
+    );
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/settings/compliance");
+  return { success: true };
+}
+
 export async function removeTeamMember(userId: string) {
   const supabase = await createClient();
   const {

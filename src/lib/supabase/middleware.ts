@@ -41,7 +41,9 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith("/magic-link") ||
     request.nextUrl.pathname.startsWith("/auth");
 
-  if (!user && !isAuthRoute) {
+  const isApiRoute = request.nextUrl.pathname.startsWith("/api");
+
+  if (!user && !isAuthRoute && !isApiRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

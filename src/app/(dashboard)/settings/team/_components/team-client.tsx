@@ -16,13 +16,20 @@ export function TeamClient({ members }: { members: User[] }) {
   const activeCount = members.filter((m) => m.status === "active").length;
   const pendingCount = members.filter((m) => m.status === "invited").length;
 
+  const [inviteError, setInviteError] = useState<string | null>(null);
+
   const handleInvite = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setInviting(true);
+    setInviteError(null);
     const formData = new FormData(e.currentTarget);
-    await inviteTeamMember(formData);
+    const result = await inviteTeamMember(formData);
     setInviting(false);
-    setInviteOpen(false);
+    if (result?.error) {
+      setInviteError(result.error);
+    } else {
+      setInviteOpen(false);
+    }
   };
 
   const handleRemove = async (userId: string) => {
@@ -119,6 +126,11 @@ export function TeamClient({ members }: { members: User[] }) {
         title="Invite Team Member"
       >
         <form onSubmit={handleInvite} className="space-y-4 px-6 pb-6">
+          {inviteError && (
+            <div className="rounded-lg border border-[rgba(248,113,113,0.3)] bg-[rgba(248,113,113,0.08)] px-3 py-2 text-xs text-red-light">
+              {inviteError}
+            </div>
+          )}
           <div>
             <label className="mb-1 block text-xs font-medium text-text-dim">
               Email Address
