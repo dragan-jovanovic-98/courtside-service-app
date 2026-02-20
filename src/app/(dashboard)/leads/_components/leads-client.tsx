@@ -27,6 +27,7 @@ import {
   leadBadgeColor,
 } from "@/lib/design-tokens";
 import { updateLeadStatus } from "@/lib/actions/leads";
+import { callEdgeFunction } from "@/lib/supabase/edge-functions";
 import type { LeadListItem, TimelineEvent } from "@/types";
 
 const STATUSES = [
@@ -234,7 +235,23 @@ export function LeadsClient({
 
             {/* Action buttons */}
             <div className="flex flex-col gap-1.5">
-              <Button className="justify-center gap-1.5 bg-emerald-dark text-white hover:bg-emerald-dark/90">
+              <Button
+                className="justify-center gap-1.5 bg-emerald-dark text-white hover:bg-emerald-dark/90"
+                onClick={async () => {
+                  if (!lead.agent_id) {
+                    alert("No agent assigned to this campaign");
+                    return;
+                  }
+                  const { error } = await callEdgeFunction("initiate-call", {
+                    agent_id: lead.agent_id,
+                    lead_id: lead.id,
+                    contact_id: lead.contact_id,
+                    campaign_id: lead.campaign_id,
+                  });
+                  if (error) alert(`Call failed: ${error}`);
+                  else alert("Call initiated");
+                }}
+              >
                 <Phone size={13} /> Call Now
               </Button>
               <Button variant="ghost" className="justify-center gap-1.5">

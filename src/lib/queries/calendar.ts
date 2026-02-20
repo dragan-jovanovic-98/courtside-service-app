@@ -15,7 +15,7 @@ export async function getAppointmentsByMonth(
   const { data } = await supabase
     .from("appointments")
     .select(
-      "id, scheduled_at, duration_minutes, notes, status, contacts(first_name, last_name, phone, company), campaigns(name), calls(duration_seconds, ai_summary)"
+      "id, contact_id, lead_id, scheduled_at, duration_minutes, notes, status, contacts(first_name, last_name, phone, company), campaigns(name, agent_id), calls(duration_seconds, ai_summary)"
     )
     .gte("scheduled_at", startDate.toISOString())
     .lte("scheduled_at", endDate.toISOString())
@@ -31,7 +31,7 @@ export async function getAppointmentsByMonth(
       phone: string;
       company: string | null;
     } | null;
-    const campaign = r.campaigns as { name: string } | null;
+    const campaign = r.campaigns as { name: string; agent_id: string | null } | null;
     const calls = r.calls as {
       duration_seconds: number | null;
       ai_summary: string | null;
@@ -42,6 +42,9 @@ export async function getAppointmentsByMonth(
 
     const appt: CalendarAppointmentData = {
       id: r.id as string,
+      contact_id: r.contact_id as string,
+      lead_id: (r.lead_id as string | null) ?? null,
+      agent_id: campaign?.agent_id ?? null,
       time: formatTime(scheduledAt),
       name: contact
         ? fullName(contact.first_name, contact.last_name)

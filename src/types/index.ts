@@ -112,6 +112,9 @@ export type DashboardAppointment = {
 
 export type DashboardActionItem = {
   id: string;
+  contact_id: string;
+  lead_id: string | null;
+  agent_id: string | null;
   name: string;
   reason: string;
   campaign: string | null;
@@ -155,6 +158,9 @@ export type EngagedLeadsData = {
 
 export type LeadListItem = {
   id: string;
+  contact_id: string;
+  campaign_id: string;
+  agent_id: string | null;
   name: string;
   phone: string;
   email: string | null;
@@ -182,6 +188,9 @@ export type CallListItem = {
 
 export type CalendarAppointmentData = {
   id: string;
+  contact_id: string;
+  lead_id: string | null;
+  agent_id: string | null;
   time: string;
   name: string;
   company: string | null;

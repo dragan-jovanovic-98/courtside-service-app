@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Plus, Pause, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ColoredBadge } from "@/components/ui/colored-badge";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { cn } from "@/lib/utils";
+import { callEdgeFunction } from "@/lib/supabase/edge-functions";
 import type { CampaignWithAgent } from "@/types";
 
 const statusFilters = ["all", "active", "paused", "draft", "completed"] as const;
@@ -16,7 +18,10 @@ export function CampaignsClient({
 }: {
   campaigns: CampaignWithAgent[];
 }) {
+  const router = useRouter();
   const [filter, setFilter] = useState<string>("all");
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const list =
     filter === "all"
@@ -24,6 +29,43 @@ export function CampaignsClient({
       : campaigns.filter((c) => c.status === filter);
   const totalBookings = campaigns.reduce((s, c) => s + c.bookings, 0);
   const totalLeads = campaigns.reduce((s, c) => s + c.total_leads, 0);
+
+  const handleStatusChange = async (campaignId: string, status: "active" | "paused") => {
+    setBusyIds((prev) => new Set(prev).add(campaignId));
+    const { error } = await callEdgeFunction("update-campaign-status", {
+      campaign_id: campaignId,
+      status,
+    });
+    if (error) {
+      alert(`Failed to ${status === "active" ? "resume" : "pause"} campaign: ${error}`);
+    }
+    setBusyIds((prev) => {
+      const next = new Set(prev);
+      next.delete(campaignId);
+      return next;
+    });
+    router.refresh();
+  };
+
+  const handleImportLeads = async (campaignId: string, file: File) => {
+    setBusyIds((prev) => new Set(prev).add(campaignId));
+    const text = await file.text();
+    const { error } = await callEdgeFunction("import-leads", {
+      campaign_id: campaignId,
+      csv_text: text,
+    });
+    if (error) {
+      alert(`Failed to import leads: ${error}`);
+    } else {
+      alert("Leads imported successfully");
+    }
+    setBusyIds((prev) => {
+      const next = new Set(prev);
+      next.delete(campaignId);
+      return next;
+    });
+    router.refresh();
+  };
 
   return (
     <div>
@@ -94,6 +136,7 @@ export function CampaignsClient({
               c.calls_made > 0
                 ? Math.round((c.calls_connected / c.calls_made) * 100) + "%"
                 : "—";
+            const isBusy = busyIds.has(c.id);
 
             return (
               <div
@@ -125,11 +168,30 @@ export function CampaignsClient({
                       variant="ghost"
                       size="sm"
                       className="gap-1 px-2 text-[10px]"
+                      disabled={isBusy}
+                      onClick={() => fileInputRefs.current[c.id]?.click()}
                     >
                       <Plus size={12} /> Leads
                     </Button>
+                    <input
+                      ref={(el) => { fileInputRefs.current[c.id] = el; }}
+                      type="file"
+                      accept=".csv"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleImportLeads(c.id, file);
+                        e.target.value = "";
+                      }}
+                    />
                     {c.status === "active" && (
-                      <Button variant="ghost" size="sm" className="px-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="px-2"
+                        disabled={isBusy}
+                        onClick={() => handleStatusChange(c.id, "paused")}
+                      >
                         <Pause size={12} />
                       </Button>
                     )}
@@ -137,6 +199,8 @@ export function CampaignsClient({
                       <Button
                         size="sm"
                         className="bg-emerald-dark px-2 text-white hover:bg-emerald-dark/90"
+                        disabled={isBusy}
+                        onClick={() => handleStatusChange(c.id, "active")}
                       >
                         <Play size={12} />
                       </Button>

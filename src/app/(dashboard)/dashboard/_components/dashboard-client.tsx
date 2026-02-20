@@ -34,6 +34,7 @@ import {
 import { tokens } from "@/lib/design-tokens";
 import { formatCurrency } from "@/lib/format";
 import { resolveActionItem, unresolveActionItem } from "@/lib/actions/action-items";
+import { callEdgeFunction } from "@/lib/supabase/edge-functions";
 import type {
   DashboardStats,
   DashboardAppointment,
@@ -278,7 +279,19 @@ export function DashboardClient({
                 label: "Call Now",
                 icon: <PhoneCall size={13} />,
                 color: tokens.emerald,
-                onClick: () => {},
+                onClick: async () => {
+                  if (!a.agent_id) {
+                    alert("No agent assigned to this lead's campaign");
+                    return;
+                  }
+                  const { error } = await callEdgeFunction("initiate-call", {
+                    agent_id: a.agent_id,
+                    lead_id: a.lead_id,
+                    contact_id: a.contact_id,
+                  });
+                  if (error) alert(`Call failed: ${error}`);
+                  else alert("Call initiated");
+                },
               },
               {
                 label: "Send Text",

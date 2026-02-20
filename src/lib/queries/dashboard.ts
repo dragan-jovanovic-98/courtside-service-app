@@ -259,7 +259,7 @@ export async function getActionItems(): Promise<DashboardActionItem[]> {
 
   const { data } = await supabase
     .from("action_items")
-    .select("id, title, description, type, campaign_name, created_at, contacts(first_name, last_name)")
+    .select("id, contact_id, lead_id, title, description, type, campaign_name, created_at, contacts(first_name, last_name), leads(campaign_id, campaigns(agent_id))")
     .eq("is_resolved", false)
     .order("created_at", { ascending: false })
     .limit(10);
@@ -271,9 +271,13 @@ export async function getActionItems(): Promise<DashboardActionItem[]> {
       first_name: string;
       last_name: string | null;
     } | null;
+    const lead = row.leads as { campaign_id: string; campaigns: { agent_id: string | null } | null } | null;
 
     return {
       id: row.id as string,
+      contact_id: row.contact_id as string,
+      lead_id: (row.lead_id as string | null) ?? null,
+      agent_id: lead?.campaigns?.agent_id ?? null,
       name: contact
         ? fullName(contact.first_name, contact.last_name)
         : "Unknown",

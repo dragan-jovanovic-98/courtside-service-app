@@ -9,7 +9,7 @@ export async function getLeads(): Promise<LeadListItem[]> {
   const { data } = await supabase
     .from("leads")
     .select(
-      "id, status, last_call_outcome, last_activity_at, contacts(first_name, last_name, phone, email, company), campaigns(name)"
+      "id, contact_id, campaign_id, status, last_call_outcome, last_activity_at, contacts(first_name, last_name, phone, email, company), campaigns(name, agent_id)"
     )
     .order("last_activity_at", { ascending: false, nullsFirst: false })
     .limit(100);
@@ -24,10 +24,13 @@ export async function getLeads(): Promise<LeadListItem[]> {
       email: string | null;
       company: string | null;
     } | null;
-    const campaign = row.campaigns as { name: string } | null;
+    const campaign = row.campaigns as { name: string; agent_id: string | null } | null;
 
     return {
       id: row.id as string,
+      contact_id: row.contact_id as string,
+      campaign_id: row.campaign_id as string,
+      agent_id: campaign?.agent_id ?? null,
       name: contact ? fullName(contact.first_name, contact.last_name) : "Unknown",
       phone: contact?.phone ?? "",
       email: contact?.email ?? null,

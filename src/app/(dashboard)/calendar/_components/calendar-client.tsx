@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   ChevronRight,
   Phone,
@@ -12,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { SectionLabel } from "@/components/ui/section-label";
 import { cn } from "@/lib/utils";
+import { callEdgeFunction } from "@/lib/supabase/edge-functions";
 import type { CalendarAppointmentData } from "@/types";
 
 const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -45,11 +47,15 @@ export function CalendarClient({
   daysInMonth: number;
   firstDayOfWeek: number; // 0=Sun, 1=Mon, etc
 }) {
+  const router = useRouter();
   const [selected, setSelected] = useState<{
     day: number;
     idx: number;
   } | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [rescheduleMode, setRescheduleMode] = useState(false);
+  const [rescheduleValue, setRescheduleValue] = useState("");
 
   const selAppt: CalendarAppointmentData | null = selected
     ? (appointmentsByDay[selected.day] || [])[selected.idx] ?? null
@@ -324,20 +330,99 @@ export function CalendarClient({
           )}
 
           <div className="flex flex-col gap-1.5">
-            <Button className="justify-center gap-1.5 bg-emerald-dark text-xs text-white hover:bg-emerald-dark/90">
+            <Button
+              className="justify-center gap-1.5 bg-emerald-dark text-xs text-white hover:bg-emerald-dark/90"
+              disabled={actionBusy}
+              onClick={async () => {
+                if (!selAppt.agent_id) {
+                  alert("No agent assigned to this appointment's campaign");
+                  return;
+                }
+                setActionBusy(true);
+                const { error } = await callEdgeFunction("initiate-call", {
+                  agent_id: selAppt.agent_id,
+                  lead_id: selAppt.lead_id,
+                  contact_id: selAppt.contact_id,
+                });
+                setActionBusy(false);
+                if (error) alert(`Call failed: ${error}`);
+                else alert("Call initiated");
+              }}
+            >
               <Phone size={12} /> Call Now
             </Button>
-            <Button
-              variant="ghost"
-              className="justify-center gap-1.5 text-xs"
-            >
-              <Calendar size={12} /> Reschedule
-            </Button>
+
+            {rescheduleMode ? (
+              <div className="flex flex-col gap-1.5">
+                <input
+                  type="datetime-local"
+                  value={rescheduleValue}
+                  onChange={(e) => setRescheduleValue(e.target.value)}
+                  className="rounded-lg border border-border-default bg-surface-input px-2.5 py-2 text-xs text-text-primary [color-scheme:dark]"
+                />
+                <div className="flex gap-1.5">
+                  <Button
+                    className="flex-1 justify-center bg-emerald-dark text-xs text-white hover:bg-emerald-dark/90"
+                    disabled={actionBusy || !rescheduleValue}
+                    onClick={async () => {
+                      setActionBusy(true);
+                      const { error } = await callEdgeFunction("reschedule-appointment", {
+                        appointment_id: selAppt.id,
+                        scheduled_at: new Date(rescheduleValue).toISOString(),
+                      });
+                      setActionBusy(false);
+                      if (error) alert(`Reschedule failed: ${error}`);
+                      else {
+                        setRescheduleMode(false);
+                        setPanelOpen(false);
+                        router.refresh();
+                      }
+                    }}
+                  >
+                    Confirm
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="flex-1 justify-center text-xs"
+                    onClick={() => setRescheduleMode(false)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button
+                variant="ghost"
+                className="justify-center gap-1.5 text-xs"
+                disabled={actionBusy}
+                onClick={() => {
+                  setRescheduleValue(selAppt.scheduledAt.slice(0, 16));
+                  setRescheduleMode(true);
+                }}
+              >
+                <Calendar size={12} /> Reschedule
+              </Button>
+            )}
+
             <Button
               variant="ghost"
               className="justify-center gap-1.5 text-xs text-red-light"
+              disabled={actionBusy}
+              onClick={async () => {
+                if (!window.confirm("Cancel this appointment?")) return;
+                setActionBusy(true);
+                const { error } = await callEdgeFunction("cancel-appointment", {
+                  appointment_id: selAppt.id,
+                });
+                setActionBusy(false);
+                if (error) alert(`Cancel failed: ${error}`);
+                else {
+                  setPanelOpen(false);
+                  router.refresh();
+                }
+              }}
             >
-              <XCircle size={12} /> Cancel
+              <XCircle size={12} /> Cancel Appointment
             </Button>
           </div>
         </div>

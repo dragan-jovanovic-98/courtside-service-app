@@ -1,34 +1,167 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
+import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Check, Plus, X } from "lucide-react";
+import { ChevronLeft, Check, Plus, X, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ColoredBadge } from "@/components/ui/colored-badge";
 import { SectionLabel } from "@/components/ui/section-label";
 import { cn } from "@/lib/utils";
+import { callEdgeFunction } from "@/lib/supabase/edge-functions";
 
 type AgentOption = { id: string; name: string; tag: string; description: string };
+type ScheduleDay = { day: string; on: boolean; slots: string[][] };
 
 const STEPS = ["Select Agent", "Add Leads", "Schedule", "Review"];
 
-const defaultSchedule = [
+const makeDefaultSchedule = (): ScheduleDay[] => [
   { day: "Monday", on: true, slots: [["6:00 PM", "8:00 PM"]] },
   { day: "Tuesday", on: true, slots: [["6:00 PM", "8:00 PM"]] },
   { day: "Wednesday", on: true, slots: [["9:00 AM", "11:00 AM"], ["6:00 PM", "8:00 PM"]] },
   { day: "Thursday", on: true, slots: [["6:00 PM", "8:00 PM"]] },
   { day: "Friday", on: true, slots: [["5:00 PM", "8:00 PM"]] },
   { day: "Saturday", on: true, slots: [["12:00 PM", "4:00 PM"]] },
-  { day: "Sunday", on: false, slots: [] as string[][] },
+  { day: "Sunday", on: false, slots: [] },
 ];
 
 export function CampaignWizard({ agents }: { agents: AgentOption[] }) {
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState(1);
   const [agentId, setAgentId] = useState<string | null>(null);
   const [campaignName, setCampaignName] = useState("");
+
+  // Step 2: CSV
+  const [csvText, setCsvText] = useState<string | null>(null);
+  const [csvFileName, setCsvFileName] = useState<string | null>(null);
+  const [csvRowCount, setCsvRowCount] = useState(0);
+
+  // Step 3: Schedule & rules
+  const [schedule, setSchedule] = useState<ScheduleDay[]>(makeDefaultSchedule);
+  const [dailyLimit, setDailyLimit] = useState(150);
+  const [maxRetries, setMaxRetries] = useState(2);
+  const [timezone, setTimezone] = useState("America/Toronto");
+  const [endDate, setEndDate] = useState("");
+
+  // Submission state
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleFileSelect = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      setCsvText(text);
+      setCsvFileName(file.name);
+      const lines = text.trim().split("\n");
+      setCsvRowCount(Math.max(0, lines.length - 1)); // subtract header
+    };
+    reader.readAsText(file);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      const file = e.dataTransfer.files[0];
+      if (file && file.name.endsWith(".csv")) handleFileSelect(file);
+    },
+    [handleFileSelect]
+  );
+
+  const toggleDay = (dayIdx: number) => {
+    setSchedule((prev) =>
+      prev.map((d, i) =>
+        i === dayIdx ? { ...d, on: !d.on, slots: d.on ? [] : [["6:00 PM", "8:00 PM"]] } : d
+      )
+    );
+  };
+
+  const removeSlot = (dayIdx: number, slotIdx: number) => {
+    setSchedule((prev) =>
+      prev.map((d, i) =>
+        i === dayIdx ? { ...d, slots: d.slots.filter((_, si) => si !== slotIdx) } : d
+      )
+    );
+  };
+
+  const addSlot = (dayIdx: number) => {
+    setSchedule((prev) =>
+      prev.map((d, i) =>
+        i === dayIdx ? { ...d, slots: [...d.slots, ["6:00 PM", "8:00 PM"]] } : d
+      )
+    );
+  };
+
+  const activeDays = schedule.filter((d) => d.on).map((d) => d.day.slice(0, 3)).join(", ");
+
+  const handleSubmit = async (activate: boolean) => {
+    if (!agentId || !campaignName.trim()) return;
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      // 1. Create campaign as draft
+      const schedulePayload = schedule
+        .filter((d) => d.on)
+        .map((d) => ({
+          day_of_week: d.day.toLowerCase(),
+          slots: d.slots.map(([start, end]) => ({ start_time: start, end_time: end })),
+        }));
+
+      const { data: campaign, error: createErr } = await callEdgeFunction<{ id: string }>(
+        "create-campaign",
+        {
+          name: campaignName.trim(),
+          agent_id: agentId,
+          status: "draft",
+          daily_limit: dailyLimit,
+          max_retries: maxRetries,
+          timezone,
+          end_date: endDate || null,
+          schedule: schedulePayload,
+        }
+      );
+
+      if (createErr || !campaign) {
+        setError(createErr ?? "Failed to create campaign");
+        setSubmitting(false);
+        return;
+      }
+
+      // 2. Import leads if CSV exists
+      if (csvText) {
+        const { error: importErr } = await callEdgeFunction("import-leads", {
+          campaign_id: campaign.id,
+          csv_text: csvText,
+        });
+        if (importErr) {
+          setError(`Campaign created but lead import failed: ${importErr}`);
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      // 3. Activate if requested
+      if (activate) {
+        const { error: activateErr } = await callEdgeFunction("update-campaign-status", {
+          campaign_id: campaign.id,
+          status: "active",
+        });
+        if (activateErr) {
+          setError(`Campaign created but activation failed: ${activateErr}`);
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      router.push("/campaigns");
+      router.refresh();
+    } catch {
+      setError("An unexpected error occurred");
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="max-w-[600px]">
@@ -64,6 +197,13 @@ export function CampaignWizard({ agents }: { agents: AgentOption[] }) {
           </div>
         ))}
       </div>
+
+      {/* Error banner */}
+      {error && (
+        <div className="mb-4 rounded-lg border border-[rgba(248,113,113,0.3)] bg-[rgba(248,113,113,0.08)] px-4 py-2.5 text-xs text-red-light">
+          {error}
+        </div>
+      )}
 
       {/* Step 1: Select Agent */}
       {step === 1 && (
@@ -108,19 +248,65 @@ export function CampaignWizard({ agents }: { agents: AgentOption[] }) {
             className="mb-3 border-border-default bg-surface-input text-text-primary placeholder:text-text-dim"
           />
           <div className="mb-3 grid grid-cols-2 gap-2.5">
-            {([["Upload CSV", "Drag & drop or browse"], ["Existing Leads", "Select from contacts"]] as const).map(([title, desc]) => (
-              <div key={title} className="cursor-pointer rounded-xl border-2 border-dashed border-border-default p-8 text-center hover:border-text-dim">
-                <div className="text-[13px] font-semibold text-text-muted">{title}</div>
-                <div className="mt-1 text-[11px] text-text-dim">{desc}</div>
+            {/* CSV Upload */}
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleDrop}
+              className={cn(
+                "cursor-pointer rounded-xl border-2 border-dashed p-8 text-center transition-colors hover:border-text-dim",
+                csvFileName
+                  ? "border-[rgba(52,211,153,0.4)] bg-emerald-bg"
+                  : "border-border-default"
+              )}
+            >
+              <Upload size={16} className="mx-auto mb-1.5 text-text-dim" />
+              <div className="text-[13px] font-semibold text-text-muted">
+                {csvFileName ?? "Upload CSV"}
               </div>
-            ))}
+              <div className="mt-1 text-[11px] text-text-dim">
+                {csvFileName ? `${csvRowCount} leads` : "Drag & drop or browse"}
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleFileSelect(file);
+                }}
+              />
+            </div>
+            {/* Existing Leads placeholder */}
+            <div className="cursor-not-allowed rounded-xl border-2 border-dashed border-border-default p-8 text-center opacity-50">
+              <div className="text-[13px] font-semibold text-text-muted">Existing Leads</div>
+              <div className="mt-1 text-[11px] text-text-dim">Coming soon</div>
+            </div>
           </div>
-          <div className="rounded-xl border border-border-default bg-surface-card p-3.5">
-            <div className="text-xs text-text-dim">Preview: 150 leads · 3 DNC excluded</div>
-            <div className="mt-1 text-[11px] text-emerald-light opacity-70">DNC check passed</div>
-          </div>
+          {csvFileName && (
+            <div className="mb-3 rounded-xl border border-border-default bg-surface-card p-3.5">
+              <div className="flex items-center justify-between">
+                <div className="text-xs text-text-dim">
+                  {csvFileName} · {csvRowCount} leads
+                </div>
+                <button
+                  onClick={() => {
+                    setCsvText(null);
+                    setCsvFileName(null);
+                    setCsvRowCount(0);
+                    if (fileInputRef.current) fileInputRef.current.value = "";
+                  }}
+                  className="text-text-dim hover:text-text-muted"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            </div>
+          )}
           <Button
             onClick={() => setStep(3)}
+            disabled={!campaignName.trim()}
             className="mt-3 w-full justify-center bg-emerald-dark text-white hover:bg-emerald-dark/90"
           >
             Continue
@@ -137,10 +323,11 @@ export function CampaignWizard({ agents }: { agents: AgentOption[] }) {
           <div className="mb-2.5 rounded-xl border border-border-default bg-surface-card p-4">
             <SectionLabel>Calling Schedule</SectionLabel>
             <div className="flex flex-col gap-1">
-              {defaultSchedule.map((day) => (
+              {schedule.map((day, dayIdx) => (
                 <div key={day.day} className="flex items-center gap-2.5 border-b border-border-light py-1.5">
                   {/* Toggle */}
                   <div
+                    onClick={() => toggleDay(dayIdx)}
                     className={cn(
                       "relative h-[18px] w-[34px] shrink-0 cursor-pointer rounded-full",
                       day.on ? "bg-emerald-dark" : "bg-[rgba(255,255,255,0.08)]"
@@ -162,13 +349,19 @@ export function CampaignWizard({ agents }: { agents: AgentOption[] }) {
                           <span className="text-[10px] text-text-dim">→</span>
                           <span className="text-[11px] tabular-nums text-text-primary">{s[1]}</span>
                           {day.slots.length > 1 && (
-                            <button className="ml-0.5 flex text-text-dim hover:text-text-muted">
+                            <button
+                              onClick={() => removeSlot(dayIdx, si)}
+                              className="ml-0.5 flex text-text-dim hover:text-text-muted"
+                            >
                               <X size={10} />
                             </button>
                           )}
                         </div>
                       ))}
-                      <button className="flex items-center gap-0.5 rounded-md border border-dashed border-border-default px-2 py-[3px] text-[10px] text-text-dim hover:text-text-muted">
+                      <button
+                        onClick={() => addSlot(dayIdx)}
+                        className="flex items-center gap-0.5 rounded-md border border-dashed border-border-default px-2 py-[3px] text-[10px] text-text-dim hover:text-text-muted"
+                      >
                         <Plus size={9} /> Add slot
                       </button>
                     </div>
@@ -182,22 +375,51 @@ export function CampaignWizard({ agents }: { agents: AgentOption[] }) {
 
           {/* Rules */}
           <div className="mb-2.5 grid grid-cols-4 gap-2">
-            {([
-              ["Daily Limit", "150", "calls/day"],
-              ["Retries", "2", "per lead"],
-              ["Timezone", "EST", "Toronto"],
-            ] as const).map(([label, val, sub]) => (
-              <div key={label} className="rounded-xl border border-border-default bg-surface-card p-3">
-                <div className="text-[11px] text-text-dim">{label}</div>
-                <div className="text-lg font-bold text-text-primary">{val}</div>
-                <div className="text-[9px] text-text-faint">{sub}</div>
+            <div className="rounded-xl border border-border-default bg-surface-card p-3">
+              <div className="text-[11px] text-text-dim">Daily Limit</div>
+              <input
+                type="number"
+                value={dailyLimit}
+                onChange={(e) => setDailyLimit(Number(e.target.value) || 0)}
+                className="mt-0.5 w-full bg-transparent text-lg font-bold text-text-primary outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              />
+              <div className="text-[9px] text-text-faint">calls/day</div>
+            </div>
+            <div className="rounded-xl border border-border-default bg-surface-card p-3">
+              <div className="text-[11px] text-text-dim">Retries</div>
+              <input
+                type="number"
+                value={maxRetries}
+                onChange={(e) => setMaxRetries(Number(e.target.value) || 0)}
+                className="mt-0.5 w-full bg-transparent text-lg font-bold text-text-primary outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              />
+              <div className="text-[9px] text-text-faint">per lead</div>
+            </div>
+            <div className="rounded-xl border border-border-default bg-surface-card p-3">
+              <div className="text-[11px] text-text-dim">Timezone</div>
+              <select
+                value={timezone}
+                onChange={(e) => setTimezone(e.target.value)}
+                className="mt-0.5 w-full appearance-none bg-transparent text-[13px] font-bold text-text-primary outline-none"
+              >
+                <option value="America/Toronto">EST</option>
+                <option value="America/Chicago">CST</option>
+                <option value="America/Denver">MST</option>
+                <option value="America/Los_Angeles">PST</option>
+              </select>
+              <div className="text-[9px] text-text-faint">
+                {timezone.split("/")[1]?.replace("_", " ")}
               </div>
-            ))}
+            </div>
             <div className="rounded-xl border border-border-default bg-surface-card p-3">
               <div className="text-[11px] text-text-dim">End Date</div>
-              <div className="text-[13px] font-semibold text-text-primary">Optional</div>
+              <div className="text-[13px] font-semibold text-text-primary">
+                {endDate || "Optional"}
+              </div>
               <input
                 type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
                 className="mt-1 w-full rounded-md border border-border-default bg-surface-input px-1.5 py-1 text-[11px] text-text-primary [color-scheme:dark]"
               />
             </div>
@@ -219,30 +441,37 @@ export function CampaignWizard({ agents }: { agents: AgentOption[] }) {
           <div className="mb-4 rounded-xl border border-border-default bg-surface-card p-5">
             <div className="grid grid-cols-2 gap-4">
               {([
-                ["Campaign", campaignName || "Spring Mortgage"],
-                ["Agent", agents.find((a) => a.id === agentId)?.name || "Sarah"],
-                ["Leads", "147"],
-                ["DNC Removed", "3"],
-                ["Schedule", "Mon–Sat, per-day slots"],
-                ["Limit", "150/day"],
-                ["Est. Duration", "~2 days"],
-                ["Retries", "2 × 24hr"],
+                ["Campaign", campaignName || "—"],
+                ["Agent", agents.find((a) => a.id === agentId)?.name || "—"],
+                ["Leads", csvRowCount > 0 ? String(csvRowCount) : "None"],
+                ["Schedule", activeDays || "None"],
+                ["Limit", `${dailyLimit}/day`],
+                ["Retries", `${maxRetries} per lead`],
+                ["Timezone", timezone.split("/")[1]?.replace("_", " ") ?? timezone],
+                ["End Date", endDate || "None"],
               ] as const).map(([label, val]) => (
                 <div key={label}>
                   <span className="block text-[11px] text-text-dim">{label}</span>
-                  <span className={cn("text-[13px] font-semibold", label === "DNC Removed" ? "text-red-light" : "text-text-primary")}>
-                    {val}
-                  </span>
+                  <span className="text-[13px] font-semibold text-text-primary">{val}</span>
                 </div>
               ))}
             </div>
           </div>
           <div className="flex gap-2.5">
-            <Button asChild variant="ghost" className="flex-1 justify-center">
-              <Link href="/campaigns">Save Draft</Link>
+            <Button
+              variant="ghost"
+              className="flex-1 justify-center"
+              disabled={submitting}
+              onClick={() => handleSubmit(false)}
+            >
+              {submitting ? "Saving..." : "Save Draft"}
             </Button>
-            <Button asChild className="flex-1 justify-center bg-emerald-dark text-white hover:bg-emerald-dark/90">
-              <Link href="/campaigns">Save &amp; Activate</Link>
+            <Button
+              className="flex-1 justify-center bg-emerald-dark text-white hover:bg-emerald-dark/90"
+              disabled={submitting}
+              onClick={() => handleSubmit(true)}
+            >
+              {submitting ? "Activating..." : "Save & Activate"}
             </Button>
           </div>
         </div>
