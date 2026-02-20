@@ -448,7 +448,7 @@ export function DashboardClient({
       </div>
 
       {/* Metric cards */}
-      <div className="mb-3 grid grid-cols-4 gap-2.5">
+      <div className="mb-3 grid grid-cols-2 gap-2.5 md:grid-cols-4">
         <StatCard
           label="Appointments"
           value={stats.appointments}
@@ -479,7 +479,7 @@ export function DashboardClient({
       </div>
 
       {/* Engaged leads + Call outcomes */}
-      <div className="mb-3 grid grid-cols-2 gap-2.5">
+      <div className="mb-3 grid grid-cols-1 gap-2.5 md:grid-cols-2">
         {/* Engaged Leads */}
         <div
           className="rounded-xl border border-[rgba(52,211,153,0.15)] p-[18px]"
@@ -586,7 +586,7 @@ export function DashboardClient({
       {/* ACTIVE CAMPAIGNS */}
       <SectionLabel>Active Campaigns</SectionLabel>
       {campaigns.length > 0 ? (
-        <div className="grid grid-cols-3 gap-2.5">
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
           {campaigns.map((c) => (
             <Link
               key={c.id}

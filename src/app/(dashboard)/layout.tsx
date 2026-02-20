@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { getUserProfile } from "@/lib/supabase/auth";
-import { Sidebar } from "@/components/layout/sidebar";
-import { Header } from "@/components/layout/header";
+import { DashboardShell } from "@/components/layout/dashboard-shell";
 
 export default async function DashboardLayout({
   children,
@@ -22,16 +21,12 @@ export default async function DashboardLayout({
   const planName = (profile.organizations as { name?: string } | null)?.name ?? undefined;
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar
-        userName={fullName}
-        userInitials={initials.toUpperCase()}
-        planName={planName}
-      />
-      <main className="relative flex-1 overflow-y-auto px-7 py-5">
-        <Header />
-        <div className="mx-auto max-w-[920px]">{children}</div>
-      </main>
-    </div>
+    <DashboardShell
+      userName={fullName}
+      userInitials={initials.toUpperCase()}
+      planName={planName}
+    >
+      {children}
+    </DashboardShell>
   );
 }

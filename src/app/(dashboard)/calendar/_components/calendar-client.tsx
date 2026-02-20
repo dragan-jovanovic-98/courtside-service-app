@@ -70,7 +70,7 @@ export function CalendarClient({
   }
 
   return (
-    <div className="flex gap-0">
+    <div className="flex flex-col gap-4 lg:flex-row lg:gap-0">
       <div className="min-w-0 flex-1">
         {/* Header */}
         <div className="mb-4 flex items-start justify-between">
@@ -257,7 +257,7 @@ export function CalendarClient({
 
       {/* Detail panel */}
       {panelOpen && selAppt && (
-        <div className="sticky top-5 ml-4 w-[300px] shrink-0 self-start rounded-xl border border-border-default bg-surface-card p-5">
+        <div className="w-full shrink-0 rounded-xl border border-border-default bg-surface-card p-5 lg:sticky lg:top-5 lg:ml-4 lg:w-[300px] lg:self-start">
           <div className="mb-4 flex items-center justify-between">
             <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-text-dim">
               Appointment Details

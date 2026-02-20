@@ -25,9 +25,10 @@ interface SidebarProps {
   userName: string;
   userInitials: string;
   planName?: string;
+  onNavigate?: () => void;
 }
 
-export function Sidebar({ userName, userInitials, planName }: SidebarProps) {
+export function Sidebar({ userName, userInitials, planName, onNavigate }: SidebarProps) {
   const pathname = usePathname();
 
   function isActive(href: string) {
@@ -38,10 +39,10 @@ export function Sidebar({ userName, userInitials, planName }: SidebarProps) {
   const settingsActive = pathname.startsWith("/settings");
 
   return (
-    <aside className="flex w-[210px] shrink-0 flex-col border-r border-border-default bg-[#0a0d12]">
+    <aside className="flex h-full w-[210px] shrink-0 flex-col border-r border-border-default bg-[#0a0d12]">
       {/* Brand */}
       <div className="border-b border-border-default px-4 py-[22px]">
-        <Link href="/dashboard" className="flex items-center gap-[11px]">
+        <Link href="/dashboard" className="flex items-center gap-[11px]" onClick={onNavigate}>
           <div className="flex size-8 shrink-0 items-center justify-center rounded-[9px] border border-[rgba(28,171,176,0.12)] bg-[rgba(28,171,176,0.1)]">
             <Image
               src="/courtside-logo.svg"
@@ -64,6 +65,7 @@ export function Sidebar({ userName, userInitials, planName }: SidebarProps) {
             <Link
               key={href}
               href={href}
+              onClick={onNavigate}
               className={cn(
                 "flex w-full items-center gap-[10px] rounded-lg px-3 py-2 text-[13px] font-semibold transition-colors",
                 active
@@ -82,6 +84,7 @@ export function Sidebar({ userName, userInitials, planName }: SidebarProps) {
       <div className="border-t border-border-default px-2 py-[10px]">
         <Link
           href="/settings"
+          onClick={onNavigate}
           className={cn(
             "flex w-full items-center gap-[10px] rounded-lg px-3 py-2 text-[13px] font-semibold transition-colors",
             settingsActive

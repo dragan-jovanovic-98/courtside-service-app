@@ -3,10 +3,11 @@
 import { useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Pause, Play } from "lucide-react";
+import { Plus, Pause, Play, Megaphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ColoredBadge } from "@/components/ui/colored-badge";
 import { ProgressBar } from "@/components/ui/progress-bar";
+import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import { callEdgeFunction } from "@/lib/supabase/edge-functions";
 import type { CampaignWithAgent } from "@/types";
@@ -83,7 +84,7 @@ export function CampaignsClient({
       </div>
 
       {/* Stats */}
-      <div className="mb-4 grid grid-cols-4 gap-2">
+      <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-4">
         {(
           [
             [campaigns.length, "Total", "text-text-primary"],
@@ -127,6 +128,20 @@ export function CampaignsClient({
       </div>
 
       {/* Campaign cards */}
+      {campaigns.length === 0 ? (
+        <EmptyState
+          icon={Megaphone}
+          title="No campaigns yet"
+          description="Create your first campaign to start reaching leads with AI-powered calls."
+          action={
+            <Button asChild className="gap-1.5 bg-emerald-dark text-white hover:bg-emerald-dark/90">
+              <Link href="/campaigns/new">
+                <Plus size={15} /> New Campaign
+              </Link>
+            </Button>
+          }
+        />
+      ) : (
       <div className="flex flex-col gap-2.5">
         {list.length > 0 ? (
           list.map((c) => {
@@ -281,6 +296,7 @@ export function CampaignsClient({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

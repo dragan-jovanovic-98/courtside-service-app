@@ -6,6 +6,7 @@ import {
   Phone,
   Mail,
   User,
+  Users,
   Search,
   Upload,
   Plus,
@@ -20,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { ColoredBadge } from "@/components/ui/colored-badge";
 import { SectionLabel } from "@/components/ui/section-label";
 import { DropdownSelect } from "@/components/ui/dropdown-select";
+import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import {
   type BadgeColor,
@@ -333,7 +335,7 @@ export function LeadsClient({
       </div>
 
       {/* Stats */}
-      <div className="mb-4 grid grid-cols-4 gap-2">
+      <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-4">
         {(
           [
             ["Total", stats.total, "text-text-primary"],
@@ -383,7 +385,19 @@ export function LeadsClient({
       </div>
 
       {/* Leads table */}
-      <div className="overflow-hidden rounded-xl border border-border-default bg-surface-card">
+      {leads.length === 0 ? (
+        <EmptyState
+          icon={Users}
+          title="No leads yet"
+          description="Import your first leads to start building your pipeline."
+          action={
+            <Button className="gap-1.5 bg-emerald-dark text-white hover:bg-emerald-dark/90">
+              <Upload size={14} /> Import your first leads
+            </Button>
+          }
+        />
+      ) : (
+      <div className="overflow-x-auto rounded-xl border border-border-default bg-surface-card">
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-border-default">
@@ -460,6 +474,7 @@ export function LeadsClient({
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }

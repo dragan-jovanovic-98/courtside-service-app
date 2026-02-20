@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { ColoredBadge } from "@/components/ui/colored-badge";
 import { SectionLabel } from "@/components/ui/section-label";
 import { DropdownSelect } from "@/components/ui/dropdown-select";
+import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import { outcomeBadgeColor } from "@/lib/design-tokens";
 import type { CallListItem } from "@/types";
@@ -212,7 +213,7 @@ export function CallsClient({
       </div>
 
       {/* Stats */}
-      <div className="mb-4 grid grid-cols-4 gap-2">
+      <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-4">
         {(
           [
             [stats.total, "Total Calls", "text-text-primary"],
@@ -269,7 +270,19 @@ export function CallsClient({
       </div>
 
       {/* Calls table */}
-      <div className="overflow-hidden rounded-xl border border-border-default bg-surface-card">
+      {calls.length === 0 ? (
+        <EmptyState
+          icon={Phone}
+          title="No calls yet"
+          description="Start a campaign to begin calling your leads with AI."
+          action={
+            <Button asChild className="gap-1.5 bg-emerald-dark text-white hover:bg-emerald-dark/90">
+              <Link href="/campaigns">View Campaigns</Link>
+            </Button>
+          }
+        />
+      ) : (
+      <div className="overflow-x-auto rounded-xl border border-border-default bg-surface-card">
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-border-default">
@@ -358,6 +371,7 @@ export function CallsClient({
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }
