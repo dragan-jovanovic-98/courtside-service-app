@@ -91,3 +91,111 @@ export type LeadWithDetails = Lead & {
 export type UserWithOrg = User & {
   organizations: Organization;
 };
+
+// ── Display types (flat shapes for page props) ─────────────────────
+
+export type DashboardStats = {
+  appointments: number;
+  estRevenue: number;
+  hoursSaved: number;
+  activePipeline: number;
+};
+
+export type DashboardAppointment = {
+  id: string;
+  time: string;
+  name: string;
+  company: string | null;
+  campaign: string;
+  phone: string;
+};
+
+export type DashboardActionItem = {
+  id: string;
+  name: string;
+  reason: string;
+  campaign: string | null;
+  time: string;
+  type: string;
+};
+
+export type DashboardCampaign = {
+  id: string;
+  name: string;
+  status: string;
+  callsMade: number;
+  totalLeads: number;
+  booked: number;
+  connected: number;
+  remaining: number;
+  agentName: string | null;
+};
+
+export type CallOutcomeCount = {
+  outcome: string;
+  count: number;
+};
+
+export type FunnelData = {
+  leads: number;
+  attempts: number;
+  connected: number;
+  interested: number;
+  booked: number;
+  showed: number;
+  closed: number;
+};
+
+export type EngagedLeadsData = {
+  total: number;
+  new: number;
+  active: number;
+  closed: number;
+};
+
+export type LeadListItem = {
+  id: string;
+  name: string;
+  phone: string;
+  email: string | null;
+  company: string | null;
+  status: string;
+  outcome: string | null;
+  lastActivity: string;
+  campaign: string;
+};
+
+export type CallListItem = {
+  id: string;
+  date: string;
+  name: string;
+  phone: string;
+  agent: string;
+  duration: string;
+  outcome: string;
+  campaign: string;
+  direction: string;
+  aiSummary?: string | null;
+  transcriptText?: string | null;
+  recordingUrl?: string | null;
+};
+
+export type CalendarAppointmentData = {
+  id: string;
+  time: string;
+  name: string;
+  company: string | null;
+  phone: string;
+  campaign: string;
+  duration: string;
+  summary: string | null;
+  scheduledAt: string;
+};
+
+export type TimelineEvent = {
+  type: "call" | "sms" | "email";
+  time: string;
+  title: string;
+  detail: string;
+  createdAt: string;
+};

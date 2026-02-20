@@ -9,7 +9,8 @@ import { Input } from "@/components/ui/input";
 import { ColoredBadge } from "@/components/ui/colored-badge";
 import { SectionLabel } from "@/components/ui/section-label";
 import { cn } from "@/lib/utils";
-import { mockAgents } from "@/lib/mock-data";
+
+type AgentOption = { id: string; name: string; tag: string; description: string };
 
 const STEPS = ["Select Agent", "Add Leads", "Schedule", "Review"];
 
@@ -23,7 +24,7 @@ const defaultSchedule = [
   { day: "Sunday", on: false, slots: [] as string[][] },
 ];
 
-export function CampaignWizard() {
+export function CampaignWizard({ agents }: { agents: AgentOption[] }) {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [agentId, setAgentId] = useState<string | null>(null);
@@ -68,7 +69,7 @@ export function CampaignWizard() {
       {step === 1 && (
         <div>
           <p className="mb-4 text-[13px] text-text-muted">Choose the AI agent for this campaign.</p>
-          {mockAgents.map((a) => (
+          {agents.map((a) => (
             <button
               key={a.id}
               onClick={() => setAgentId(a.id)}
@@ -219,7 +220,7 @@ export function CampaignWizard() {
             <div className="grid grid-cols-2 gap-4">
               {([
                 ["Campaign", campaignName || "Spring Mortgage"],
-                ["Agent", mockAgents.find((a) => a.id === agentId)?.name || "Sarah"],
+                ["Agent", agents.find((a) => a.id === agentId)?.name || "Sarah"],
                 ["Leads", "147"],
                 ["DNC Removed", "3"],
                 ["Schedule", "Mon–Sat, per-day slots"],

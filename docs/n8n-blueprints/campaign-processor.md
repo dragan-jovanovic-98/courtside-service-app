@@ -303,7 +303,6 @@ return leads;
   "campaign_id": "{{ $('Loop Over Leads').item.json.campaign_id }}",
   "direction": "outbound",
   "caller_phone": "{{ $('Loop Over Leads').item.json.from_number }}",
-  "callee_phone": "{{ $('Loop Over Leads').item.json.contact_phone }}",
   "started_at": "{{ $now.toISO() }}"
 }
 ```

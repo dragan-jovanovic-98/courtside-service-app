@@ -45,12 +45,12 @@ These updates refine the original decisions based on implementation experience:
 
 | Decision | Revision | Rationale |
 |---|---|---|
-| Notification delivery | **DB trigger on `notifications` table → `deliver-notification` Edge Function** | All workflows just INSERT into `notifications`. Delivery logic (Resend email, Twilio SMS to broker) is centralized. No duplication. In-app is automatic (row exists). |
+| Notification delivery | **DB trigger on `notifications` table → `deliver-notification` Edge Function** | All workflows just INSERT into `notifications`. Delivery logic (SendGrid email, Twilio SMS to broker) is centralized. No duplication. In-app is automatic (row exists). |
 | N8N scope | **N8N only for scheduled jobs + complex branching** | Simple webhook→DB flows (Twilio SMS, Stripe) are Next.js API routes. N8N reserved for: Campaign Processor (cron), Retell Post-Call (8 outcome branches + AI node), Appointment Reminders (cron). |
 | Post-call AI analysis | **Done in N8N via AI node, not Retell built-in** | Retell sends raw transcript + metadata. N8N AI node extracts structured analysis (outcome, financials, appointment details, etc.). More control over prompt and output schema. |
 | Calendar sync | **Decoupled via DB trigger** | Post-call workflow inserts appointment. DB trigger on `appointments` fires `sync-appointment-to-calendar` Edge Function. Workflows never call calendar sync directly. |
 | Calendar ownership | **Per-organization** | One calendar connection per org (not per-user). Simplifies management for V1. |
-| Email service | **Resend** | Used for lead confirmations, broker notifications, appointment reminders. |
+| Email service | **SendGrid** | Used for lead confirmations, broker notifications, appointment reminders. Credential: `KC Sendgrid`, sender domain: `court-side.ai`. |
 | Notification channels | **In-app + Email + SMS (no push)** | No mobile app, so no push notifications. Broker opts in per event type via `notification_preferences`. |
 | Post-call scope (V1) | **Outbound campaigns only** | 7.1 Retell Post-Call Webhook handles outbound campaign calls only. Inbound call handling deferred. |
 

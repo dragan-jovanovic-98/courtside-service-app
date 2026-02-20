@@ -45,7 +45,7 @@
      │
      ├── "callback" ──▶ [Create Action Item] → [Notify Broker]
      │
-     ├── "dnc" ──▶ [Add to DNC List] → [DNC All Campaigns]
+     ├── "dnc" ──▶ [Add to DNC List] → [Mark All Leads Bad] → [Mark Contact] → [Log Event]
      │
      └── (voicemail, no_answer, not_interested, wrong_number) ── no additional actions
 ```
@@ -61,14 +61,14 @@ Set these up in **n8n Settings → Credentials** before building the workflow:
 | `Courtside V2 Supabase Service Role` | HTTP Header Auth | Name: `Authorization`, Value: `Bearer <SUPABASE_SERVICE_ROLE_KEY>` |
 | `Courtside OpenAI` | OpenAI API | API Key from OpenAI dashboard |
 | `Twilio API` | Twilio API | Account SID + Auth Token from Twilio console |
-| `Resend API Key` | HTTP Header Auth | Name: `Authorization`, Value: `Bearer <RESEND_API_KEY>` |
+| `KC Sendgrid` | SendGrid API | SendGrid API Key |
 
 **Values to have ready:**
 - Supabase project URL: `https://xkwywpqrthzownikeill.supabase.co`
 - Supabase service role key
 - OpenAI API key
 - Twilio Account SID, Auth Token, and outbound SMS number
-- Resend API key and verified sender domain
+- SendGrid API key (sender domain: `court-side.ai`)
 
 ---
 
@@ -92,9 +92,9 @@ Set these up in **n8n Settings → Credentials** before building the workflow:
 | **Type** | Webhook |
 | **Position** | [0, 300] |
 | **HTTP Method** | POST |
-| **Path** | `retell-post-call` |
+| **Path** | `services/retell-post-call-outbound` |
 
-The full webhook URL will be: `https://n8n.courtside-ai.com/webhook/retell-post-call`
+The full webhook URL will be: `https://n8n.courtside-ai.com/webhook/services/retell-post-call-outbound`
 
 > **Register this URL in Retell:** Go to Retell Dashboard → Settings → Webhooks → Add the URL above as the post-call webhook endpoint.
 
@@ -379,27 +379,42 @@ return items.map(item => {
 
 > This is the same pattern used in V1. The LLM Chain outputs `{ text: "..." }` where the text is a JSON string. We parse it into a proper object.
 
-**What this outputs:**
+**What this outputs (flat structure — the Structured Output Parser flattens nested objects):**
 ```json
 {
   "outcome": "booked",
-  "outcome_confidence": 0.95,
-  "outcome_reasoning": "Lead agreed to Thursday 10:30 AM appointment",
-  "appointment": {
-    "date": "2026-02-20",
-    "time": "10:30",
-    "timezone": "America/Toronto",
-    "duration_minutes": 30,
-    "confirmed_by_lead": true
-  },
-  "summary": "Sarah Mitchell expressed strong interest in refinancing...",
-  "summary_one_line": "Refinancing interest, booked Thu 10:30 AM consult",
+  "outcome_confidence": 0.97,
+  "outcome_reasoning": "Lead agreed to a specific appointment day and time (Thursday at 10:30 AM)",
+  "appointment_date": "2026-02-26",
+  "appointment_time": "10:30",
+  "appointment_timezone": "America/Toronto",
+  "appointment_duration_minutes": 30,
+  "appointment_confirmed_by_lead": true,
+  "callback_requested_date": "",
+  "callback_requested_time": "",
+  "callback_timezone": "",
+  "callback_is_specific_time": false,
+  "callback_notes": "",
+  "summary": "Sarah confirmed she is interested in refinancing...",
+  "summary_one_line": "Booked refinance consult: Thu 2026-02-26 at 10:30",
   "sentiment": "positive",
   "engagement_level": "high",
-  "financial_details": { ... },
-  "topics": ["refinancing", "rate comparison"],
-  "follow_up": { ... },
-  "compliance": { ... }
+  "financial_current_rate": "6.2%",
+  "financial_desired_rate": "",
+  "financial_loan_amount": "",
+  "financial_property_type": "",
+  "financial_mortgage_type": "Refinance",
+  "financial_timeline": "",
+  "financial_other_details": "",
+  "objections": [],
+  "topics": ["mortgage refinancing", "interest rate", "appointment scheduling"],
+  "follow_up_recommended_action": "Send confirmation and prepare refinance options",
+  "follow_up_urgency_level": "medium",
+  "follow_up_best_contact_time": "",
+  "follow_up_lead_questions_unanswered": [],
+  "compliance_dnc_requested": false,
+  "compliance_profanity_detected": false,
+  "compliance_recording_consent_given": false
 }
 ```
 
@@ -419,7 +434,7 @@ return items.map(item => {
 **Code:**
 
 ```javascript
-// AI analysis output from Parse AI Output
+// AI analysis output from Parse AI Output (flat structure)
 const ai = $input.first().json;
 
 // Original Retell webhook data — reach back to the Webhook node
@@ -435,6 +450,11 @@ const endedAt = retell.end_timestamp
   : null;
 const durationSeconds = retell.duration_ms
   ? Math.round(retell.duration_ms / 1000)
+  : null;
+
+// Build appointment ISO from flat AI fields
+const appointmentIso = ai.appointment_date && ai.appointment_time
+  ? ai.appointment_date + 'T' + ai.appointment_time + ':00'
   : null;
 
 // Build the combined record for downstream nodes
@@ -458,11 +478,9 @@ return [{
     transcript_text: retell.transcript || null,
     disconnection_reason: retell.disconnection_reason || null,
     retell_agent_id: retell.agent_id,
-    call_cost: retell.call_cost?.combined_cost
-      ? retell.call_cost.combined_cost / 100
-      : null,
+    call_cost: retell.call_cost?.combined_cost || null,
 
-    // ── AI analysis (from our LLM Chain) ──
+    // ── AI analysis (from our LLM Chain — flat fields) ──
     outcome: ai.outcome,
     outcome_confidence: ai.outcome_confidence,
     ai_summary: ai.summary,
@@ -471,29 +489,64 @@ return [{
     engagement_level: ai.engagement_level,
 
     // ── Full AI analysis stored as metadata JSONB ──
+    // Re-nests the flat AI fields into structured objects for DB storage
     metadata_json: {
       outcome_reasoning: ai.outcome_reasoning,
-      appointment: ai.appointment || null,
-      callback: ai.callback || null,
-      financial_details: ai.financial_details || null,
-      objections: ai.objections || null,
+      appointment: appointmentIso ? {
+        date: ai.appointment_date,
+        time: ai.appointment_time,
+        timezone: ai.appointment_timezone || 'America/Toronto',
+        duration_minutes: ai.appointment_duration_minutes || 30,
+        confirmed_by_lead: ai.appointment_confirmed_by_lead
+      } : null,
+      callback: ai.callback_requested_date ? {
+        requested_date: ai.callback_requested_date,
+        requested_time: ai.callback_requested_time,
+        timezone: ai.callback_timezone,
+        is_specific_time: ai.callback_is_specific_time,
+        notes: ai.callback_notes
+      } : null,
+      financial_details: {
+        current_rate: ai.financial_current_rate || null,
+        desired_rate: ai.financial_desired_rate || null,
+        loan_amount: ai.financial_loan_amount || null,
+        property_type: ai.financial_property_type || null,
+        mortgage_type: ai.financial_mortgage_type || null,
+        timeline: ai.financial_timeline || null,
+        other_details: ai.financial_other_details || null
+      },
+      objections: ai.objections || [],
       topics: ai.topics || [],
-      follow_up: ai.follow_up || {},
-      compliance: ai.compliance || {},
+      follow_up: {
+        recommended_action: ai.follow_up_recommended_action || null,
+        urgency_level: ai.follow_up_urgency_level || null,
+        best_contact_time: ai.follow_up_best_contact_time || null,
+        lead_questions_unanswered: ai.follow_up_lead_questions_unanswered || []
+      },
+      compliance: {
+        dnc_requested: ai.compliance_dnc_requested || false,
+        profanity_detected: ai.compliance_profanity_detected || false,
+        recording_consent_given: ai.compliance_recording_consent_given || null
+      },
       retell_latency_p50: retell.latency?.e2e?.p50 || null,
       retell_disconnection_reason: retell.disconnection_reason || null,
       call_cost_cents: retell.call_cost?.combined_cost || null
     },
 
+    // ── Pre-built fields for downstream nodes ──
+    ai_appointment_iso: appointmentIso,
+    ai_appointment_date: ai.appointment_date || null,
+    ai_appointment_time: ai.appointment_time || null,
+    ai_appointment_duration: ai.appointment_duration_minutes || 30,
+    ai_appointment_timezone: ai.appointment_timezone || 'America/Toronto',
+    ai_callback_time: ai.callback_requested_time || null,
+    ai_callback_notes: ai.callback_notes || null,
+    ai_follow_up_action: ai.follow_up_recommended_action || null,
+    ai_dnc_requested: ai.compliance_dnc_requested || false,
+
     // ── Contact info (for SMS/email in outcome branches) ──
     contact_phone: retell.to_number,
-    contact_name: retell.retell_llm_dynamic_variables?.first_name || "there",
-
-    // ── AI sub-fields (for outcome branches) ──
-    ai_appointment: ai.appointment || null,
-    ai_callback: ai.callback || null,
-    ai_follow_up: ai.follow_up || {},
-    ai_compliance: ai.compliance || {}
+    contact_name: retell.retell_llm_dynamic_variables?.first_name || "there"
   }
 }];
 ```
@@ -744,8 +797,8 @@ return [{
   "lead_id": "{{ $('Build Call Record').first().json.lead_id }}",
   "contact_id": "{{ $('Build Call Record').first().json.contact_id }}",
   "campaign_id": "{{ $('Build Call Record').first().json.campaign_id }}",
-  "scheduled_at": "{{ $('Build Call Record').first().json.ai_appointment.date }}T{{ $('Build Call Record').first().json.ai_appointment.time }}:00",
-  "duration_minutes": {{ $('Build Call Record').first().json.ai_appointment?.duration_minutes || 30 }},
+  "scheduled_at": "{{ $('Build Call Record').first().json.ai_appointment_iso }}",
+  "duration_minutes": {{ $('Build Call Record').first().json.ai_appointment_duration }},
   "status": "scheduled",
   "notes": {{ JSON.stringify($('Build Call Record').first().json.summary_one_line) }}
 }
@@ -780,7 +833,7 @@ return [{
 |---|---|
 | `From` | `{{ $('Build Call Record').first().json.caller_phone }}` |
 | `To` | `{{ $('Build Call Record').first().json.contact_phone }}` |
-| `Body` | `=Hi {{ $('Build Call Record').first().json.contact_name }}, your appointment is confirmed for {{ $('Build Call Record').first().json.ai_appointment.date }} at {{ $('Build Call Record').first().json.ai_appointment.time }}. We look forward to speaking with you! Reply STOP to opt out.` |
+| `Body` | `=Hi {{ $('Build Call Record').first().json.contact_name }}, your appointment is confirmed for {{ $('Build Call Record').first().json.ai_appointment_date }} at {{ $('Build Call Record').first().json.ai_appointment_time }}. We look forward to speaking with you! Reply STOP to opt out.` |
 
 > **Alternative:** If you have the Twilio node installed, use that instead of HTTP Request. The parameters are the same.
 
@@ -794,32 +847,24 @@ return [{
 
 | Property | Value |
 |---|---|
-| **Type** | HTTP Request |
+| **Type** | SendGrid (native node) |
 | **Position** | [3150, 0] |
+| **Credential** | `KC Sendgrid` |
 | **On Error** | Continue (using regular output) |
 
-> Sends a confirmation email to the **lead** via Resend. Only fires if the contact has an email address. Use an IF node before this if you want to conditionally skip, or just let Resend fail gracefully with a null `to`.
+> Sends a confirmation email to the **lead** via SendGrid. Only fires if the contact has an email address. Use an IF node before this if you want to conditionally skip, or let SendGrid fail gracefully.
 
 **Parameters:**
-- Method: **POST**
-- URL: `https://api.resend.com/emails`
-- Authentication: **Generic Credential Type** → **HTTP Header Auth** → select `Resend API Key`
-- Send Headers: **Yes**
-  - `Content-Type`: `application/json`
-- Send Body: **Yes**
-- Body Content Type: **JSON**
-- Specify Body: **Using JSON**
 
-**JSON Body:**
-
-```
-={
-  "from": "Courtside AI <notifications@yourdomain.com>",
-  "to": "{{ $('Build Call Record').first().json.contact_phone }}@placeholder.com",
-  "subject": "Your Appointment is Confirmed",
-  "html": "<h2>Appointment Confirmed</h2><p>Hi {{ $('Build Call Record').first().json.contact_name }},</p><p>Your appointment has been scheduled for <strong>{{ $('Build Call Record').first().json.ai_appointment.date }} at {{ $('Build Call Record').first().json.ai_appointment.time }}</strong>.</p><p>We look forward to speaking with you!</p><p>— Courtside AI</p>"
-}
-```
+| Parameter | Value |
+|---|---|
+| Resource | Mail |
+| From Email | `notifications@court-side.ai` |
+| From Name | `Courtside Notifications` |
+| To Email | `={{ $('Build Call Record').first().json.contact_phone }}@placeholder.com` |
+| Subject | `Your Appointment is Confirmed` |
+| Content Type | `text/html` |
+| Content | `=<h2>Appointment Confirmed</h2><p>Hi {{ $('Build Call Record').first().json.contact_name }},</p><p>Your appointment has been scheduled for <strong>{{ $('Build Call Record').first().json.ai_appointment_date }} at {{ $('Build Call Record').first().json.ai_appointment_time }}</strong>.</p><p>We look forward to speaking with you!</p><p>— Courtside AI</p>` |
 
 > **TODO:** The lead's email address is not included in the Campaign Processor metadata. For V1, use the email from the `contacts` table. You have two options:
 > 1. Add a "Get Contact Email" HTTP GET node before this (query `contacts?id=eq.CONTACT_ID&select=email`)
@@ -861,7 +906,7 @@ return [{
   "user_id": "{{ $('Get Org Users').first().json[0].id }}",
   "type": "appointment_booked",
   "title": "New Appointment Booked",
-  "body": "{{ $('Build Call Record').first().json.contact_name }} booked an appointment for {{ $('Build Call Record').first().json.ai_appointment.date }} at {{ $('Build Call Record').first().json.ai_appointment.time }}. {{ $('Build Call Record').first().json.summary_one_line }}",
+  "body": "{{ $('Build Call Record').first().json.contact_name }} booked an appointment for {{ $('Build Call Record').first().json.ai_appointment_date }} at {{ $('Build Call Record').first().json.ai_appointment_time }}. {{ $('Build Call Record').first().json.summary_one_line }}",
   "reference_type": "appointment",
   "reference_id": "{{ $('Insert Appointment').first().json[0]?.id || null }}"
 }
@@ -902,7 +947,7 @@ return [{
   "lead_id": "{{ $('Build Call Record').first().json.lead_id }}",
   "type": "hot_lead",
   "title": "{{ $('Build Call Record').first().json.summary_one_line }}",
-  "description": "{{ $('Build Call Record').first().json.ai_summary }}{{ $('Build Call Record').first().json.ai_follow_up.recommended_action ? '\\n\\nRecommended: ' + $('Build Call Record').first().json.ai_follow_up.recommended_action : '' }}"
+  "description": "{{ $('Build Call Record').first().json.ai_summary }}{{ $('Build Call Record').first().json.ai_follow_up_action ? '\\n\\nRecommended: ' + $('Build Call Record').first().json.ai_follow_up_action : '' }}"
 }
 ```
 
@@ -976,8 +1021,8 @@ return [{
   "contact_id": "{{ $('Build Call Record').first().json.contact_id }}",
   "lead_id": "{{ $('Build Call Record').first().json.lead_id }}",
   "type": "callback_request",
-  "title": "Callback requested{{ $('Build Call Record').first().json.ai_callback?.requested_time ? ' at ' + $('Build Call Record').first().json.ai_callback.requested_time : '' }}",
-  "description": "{{ $('Build Call Record').first().json.ai_callback?.notes || $('Build Call Record').first().json.ai_summary }}"
+  "title": "Callback requested{{ $('Build Call Record').first().json.ai_callback_time ? ' at ' + $('Build Call Record').first().json.ai_callback_time : '' }}",
+  "description": "{{ $('Build Call Record').first().json.ai_callback_notes || $('Build Call Record').first().json.ai_summary }}"
 }
 ```
 
@@ -1013,7 +1058,7 @@ return [{
   "user_id": "{{ $('Get Org Users').first().json[0].id }}",
   "type": "callback_requested",
   "title": "Callback: {{ $('Build Call Record').first().json.contact_name }}",
-  "body": "{{ $('Build Call Record').first().json.contact_name }} requested a callback{{ $('Build Call Record').first().json.ai_callback?.requested_time ? ' at ' + $('Build Call Record').first().json.ai_callback.requested_time : '' }}. {{ $('Build Call Record').first().json.summary_one_line }}",
+  "body": "{{ $('Build Call Record').first().json.contact_name }} requested a callback{{ $('Build Call Record').first().json.ai_callback_time ? ' at ' + $('Build Call Record').first().json.ai_callback_time : '' }}. {{ $('Build Call Record').first().json.summary_one_line }}",
   "reference_type": "lead",
   "reference_id": "{{ $('Build Call Record').first().json.lead_id }}"
 }
@@ -1058,87 +1103,115 @@ return [{
 
 ---
 
-### Node 22: DNC All Campaigns
+### Node 22: DNC — Mark All Leads Bad
 
 | Property | Value |
 |---|---|
-| **Type** | Code |
-| **Position** | [2850, 750] |
-| **Mode** | Run Once for All Items |
-| **Language** | JavaScript |
+| **Type** | HTTP Request |
+| **Position** | [2850, 560] |
+| **On Error** | Continue (using regular output) |
 
-> This node removes the contact from ALL active campaigns by marking their leads as `bad_lead`, and updates the contact's `is_dnc` flag. It also logs a workflow event.
+> Marks ALL leads for this contact as `bad_lead` across every campaign in the org. This ensures the contact doesn't appear as active in any campaign on the dashboard.
 
-**Code:**
+**Parameters:**
+- Method: **PATCH**
+- URL (expression): `=https://xkwywpqrthzownikeill.supabase.co/rest/v1/leads?contact_id=eq.{{ $('Build Call Record').first().json.contact_id }}&org_id=eq.{{ $('Build Call Record').first().json.org_id }}&status=neq.bad_lead`
+- Authentication: **Generic Credential Type** → **HTTP Header Auth** → select `Courtside V2 Supabase Service Role`
+- Send Headers: **Yes**
+  - `apikey`: `<YOUR_SUPABASE_SERVICE_ROLE_KEY>`
+  - `Content-Type`: `application/json`
+  - `Prefer`: `return=minimal`
+- Send Body: **Yes**
+- Body Content Type: **JSON**
+- Specify Body: **Using JSON**
 
-```javascript
-const d = $('Build Call Record').first().json;
-const contactId = d.contact_id;
-const orgId = d.org_id;
-const leadId = d.lead_id;
+**JSON Body:**
 
-const supabaseUrl = 'https://xkwywpqrthzownikeill.supabase.co';
-const serviceRoleKey = 'YOUR_SUPABASE_SERVICE_ROLE_KEY';  // Replace with actual key or use $env
-
-const headers = {
-  'apikey': serviceRoleKey,
-  'Authorization': `Bearer ${serviceRoleKey}`,
-  'Content-Type': 'application/json',
-  'Prefer': 'return=minimal'
-};
-
-// 1. Mark ALL leads for this contact as bad_lead (across all campaigns)
-await fetch(
-  `${supabaseUrl}/rest/v1/leads?contact_id=eq.${contactId}&org_id=eq.${orgId}&status=neq.bad_lead`,
-  {
-    method: 'PATCH',
-    headers,
-    body: JSON.stringify({
-      status: 'bad_lead',
-      last_call_outcome: 'dnc',
-      updated_at: new Date().toISOString()
-    })
-  }
-);
-
-// 2. Mark contact as DNC
-await fetch(
-  `${supabaseUrl}/rest/v1/contacts?id=eq.${contactId}`,
-  {
-    method: 'PATCH',
-    headers,
-    body: JSON.stringify({
-      is_dnc: true,
-      updated_at: new Date().toISOString()
-    })
-  }
-);
-
-// 3. Log workflow event
-await fetch(
-  `${supabaseUrl}/rest/v1/workflow_events`,
-  {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      org_id: orgId,
-      event_type: 'dnc_auto_added',
-      source: 'retell_post_call',
-      reference_type: 'contact',
-      reference_id: contactId,
-      metadata: {
-        lead_id: leadId,
-        phone: d.contact_phone,
-        reason: 'verbal_dnc_during_call'
-      }
-    })
-  }
-);
-
-return [{ json: { success: true, contact_id: contactId, action: 'dnc_all_campaigns' } }];
+```
+={
+  "status": "bad_lead",
+  "last_call_outcome": "dnc",
+  "updated_at": "{{ $now.toISO() }}"
+}
 ```
 
-> **Security note:** In production, avoid hardcoding the service role key. Use n8n's `$env` to reference environment variables: `const serviceRoleKey = $env.SUPABASE_SERVICE_ROLE_KEY;`
+**Connects to:** DNC — Mark Contact
+
+---
+
+### Node 23: DNC — Mark Contact
+
+| Property | Value |
+|---|---|
+| **Type** | HTTP Request |
+| **Position** | [3100, 560] |
+| **On Error** | Continue (using regular output) |
+
+> Sets `is_dnc = true` on the contact record so the dashboard shows DNC status.
+
+**Parameters:**
+- Method: **PATCH**
+- URL (expression): `=https://xkwywpqrthzownikeill.supabase.co/rest/v1/contacts?id=eq.{{ $('Build Call Record').first().json.contact_id }}`
+- Authentication: **Generic Credential Type** → **HTTP Header Auth** → select `Courtside V2 Supabase Service Role`
+- Send Headers: **Yes**
+  - `apikey`: `<YOUR_SUPABASE_SERVICE_ROLE_KEY>`
+  - `Content-Type`: `application/json`
+  - `Prefer`: `return=minimal`
+- Send Body: **Yes**
+- Body Content Type: **JSON**
+- Specify Body: **Using JSON**
+
+**JSON Body:**
+
+```
+={
+  "is_dnc": true,
+  "updated_at": "{{ $now.toISO() }}"
+}
+```
+
+**Connects to:** DNC — Log Event
+
+---
+
+### Node 24: DNC — Log Event
+
+| Property | Value |
+|---|---|
+| **Type** | HTTP Request |
+| **Position** | [3350, 560] |
+| **On Error** | Continue (using regular output) |
+
+> Logs a `workflow_events` entry for audit trail. Optional but useful for compliance reporting.
+
+**Parameters:**
+- Method: **POST**
+- URL: `https://xkwywpqrthzownikeill.supabase.co/rest/v1/workflow_events`
+- Authentication: **Generic Credential Type** → **HTTP Header Auth** → select `Courtside V2 Supabase Service Role`
+- Send Headers: **Yes**
+  - `apikey`: `<YOUR_SUPABASE_SERVICE_ROLE_KEY>`
+  - `Content-Type`: `application/json`
+  - `Prefer`: `return=minimal`
+- Send Body: **Yes**
+- Body Content Type: **JSON**
+- Specify Body: **Using JSON**
+
+**JSON Body:**
+
+```
+={
+  "org_id": "{{ $('Build Call Record').first().json.org_id }}",
+  "event_type": "dnc_auto_added",
+  "source": "retell_post_call",
+  "reference_type": "contact",
+  "reference_id": "{{ $('Build Call Record').first().json.contact_id }}",
+  "metadata": {
+    "lead_id": "{{ $('Build Call Record').first().json.lead_id }}",
+    "phone": "{{ $('Build Call Record').first().json.contact_phone }}",
+    "reason": "verbal_dnc_during_call"
+  }
+}
+```
 
 ---
 
@@ -1166,7 +1239,9 @@ return [{ json: { success: true, contact_id: contactId, action: 'dnc_all_campaig
 | Send Lead Confirmation Email | main[0] | Notify Broker - Booked |
 | Create Hot Lead Action Item | main[0] | Notify Broker - Hot Lead |
 | Create Callback Action Item | main[0] | Notify Broker - Callback |
-| Add to DNC List | main[0] | DNC All Campaigns |
+| Add to DNC List | main[0] | DNC — Mark All Leads Bad |
+| DNC — Mark All Leads Bad | main[0] | DNC — Mark Contact |
+| DNC — Mark Contact | main[0] | DNC — Log Event |
 
 ---
 
@@ -1176,7 +1251,7 @@ return [{ json: { success: true, contact_id: contactId, action: 'dnc_all_campaig
 
 ```bash
 curl -X POST \
-  https://n8n.courtside-ai.com/webhook-test/retell-post-call \
+  https://n8n.courtside-ai.com/webhook-test/services/retell-post-call-outbound \
   -H "Content-Type: application/json" \
   -d '{
     "event": "call_analyzed",
@@ -1393,15 +1468,15 @@ Pin this on the **Webhook** node to test without sending a real curl request:
 
 | Symptom | Likely Cause | Fix |
 |---|---|---|
-| Webhook never fires | Retell not configured with correct URL | Check Retell dashboard → Webhooks. URL must be `https://n8n.courtside-ai.com/webhook/retell-post-call` (without `-test`) |
+| Webhook never fires | Retell not configured with correct URL | Check Retell dashboard → Webhooks. URL must be `https://n8n.courtside-ai.com/webhook/services/retell-post-call-outbound` (without `-test`) |
 | Filter blocks all calls | Retell event type mismatch | Check `body.event` — might be `call_ended` instead of `call_analyzed`. Adjust filter accordingly. |
 | AI returns invalid JSON | Prompt or schema mismatch | Check the Parse AI Output node error. If `JSON.parse` fails, the LLM returned malformed JSON. Adjust prompt or increase temperature slightly. |
 | Update Call returns empty 200 | No matching `retell_call_id` | The Campaign Processor must have created the call record first. Verify the call record exists in `calls` table. |
 | Update Lead returns 404 | Invalid lead_id in metadata | Check that `metadata.lead_id` in the Retell webhook matches an actual lead in the DB. |
 | SMS fails | Twilio credentials or number issue | Verify Twilio credentials, ensure `From` number is verified in Twilio, and `To` number is valid E.164. |
-| Email fails | Resend API key or domain issue | Check Resend dashboard — verify sender domain is authenticated. |
+| Email fails | SendGrid API key or domain issue | Check SendGrid dashboard — verify sender domain (`court-side.ai`) is authenticated. |
 | Notification not delivering | 7.0 not built yet | Notification INSERT will succeed (row appears in table), but email/SMS delivery depends on `deliver-notification` Edge Function + DB trigger. |
-| DNC All Campaigns fails | Service role key in Code node | Replace `YOUR_SUPABASE_SERVICE_ROLE_KEY` with the actual key or use `$env.SUPABASE_SERVICE_ROLE_KEY`. |
+| DNC leads/contact not updating | PATCH URL filter mismatch | Verify `contact_id` and `org_id` are correct in the URL query params. Check that leads exist with `status != bad_lead`. |
 | Switch has no output for outcome | Outcome not in switch rules | voicemail, no_answer, not_interested, wrong_number go to default (unconnected). This is expected — no additional actions needed. |
 
 ---
@@ -1445,7 +1520,7 @@ This is a Phase 8 concern. The critical data (call record, lead status, outcome-
 | Supabase call record exists | Required | The PATCH on `calls` will silently fail if no matching `retell_call_id` exists |
 | OpenAI API key | Required | For the AI analysis LLM chain |
 | Twilio credentials | Required for Booked branch | SMS confirmation to leads |
-| Resend API key | Required for Booked branch | Email confirmation to leads |
+| SendGrid API key (`KC Sendgrid`) | Required for Booked branch | Email confirmation to leads |
 
 ---
 

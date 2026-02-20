@@ -177,7 +177,7 @@
 ### 7.0 Notification Delivery System (Edge Function + DB trigger) — BUILD FIRST
 - [ ] `deliver-notification` Edge Function
   - [ ] Read `notification_preferences` for user + event type
-  - [ ] Send email via Resend (if enabled)
+  - [ ] Send email via SendGrid (if enabled)
   - [ ] Send SMS to broker via Twilio (if enabled)
   - [ ] In-app: automatic (row exists in `notifications` table)
 - [ ] DB trigger on `notifications` INSERT → calls Edge Function
@@ -185,7 +185,7 @@
 ### 7.1 Retell Post-Call Webhook (N8N) — XL
 - [x] Create detailed markdown blueprint (`docs/n8n-blueprints/retell-post-call.md`)
 - [ ] Build workflow manually in n8n visual editor using blueprint
-- [ ] Configure credentials (OpenAI, Twilio, Resend, Supabase)
+- [ ] Configure credentials (OpenAI, Twilio, SendGrid, Supabase)
 - [ ] Test with real data
 - [ ] Activate
 
@@ -223,7 +223,7 @@
 ### 7.6 Appointment Reminders (N8N) — S
 - [x] Create detailed markdown blueprint (`docs/n8n-blueprints/appointment-reminders.md`)
 - [ ] Build workflow manually in n8n visual editor using blueprint
-- [ ] Configure credentials (Twilio, Resend, Supabase)
+- [ ] Configure credentials (Twilio, SendGrid, Supabase)
 - [ ] Test with real data
 - [ ] Activate
 

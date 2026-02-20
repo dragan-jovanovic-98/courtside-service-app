@@ -20,15 +20,20 @@
        ▼
 [Loop Over Appointments]  ── SplitInBatches (1 at a time)
        │
-       ├── (output 1: current) ──▶ [Send Reminder SMS]
+       ├── (output 1: current) ──▶ [Send SMS (Twilio)]
        │                                  │
        │                                  ▼
-       │                           [Send Reminder Email]  ── (skip if no email)
-       │                                  │
-       │                                  ▼
-       │                           [Wait 1s]
-       │                                  │
-       └──────────────────────────────────┘ (loop back)
+       │                           [Check Email]  ── IF: contact_email is not empty
+       │                              │         │
+       │                         (true)      (false)
+       │                              ▼          │
+       │                       [Send Email]      │
+       │                       (SendGrid)        │
+       │                              │          │
+       │                              ▼          ▼
+       │                           [Wait 1s] ◄───┘
+       │                              │
+       └──────────────────────────────┘ (loop back)
        │
        ├── (output 0: done) ── workflow ends
 ```
@@ -40,14 +45,14 @@
 | Credential Name | Type | Value |
 |---|---|---|
 | `Courtside V2 Supabase Service Role` | HTTP Header Auth | Name: `Authorization`, Value: `Bearer <SUPABASE_SERVICE_ROLE_KEY>` |
-| `Twilio API` | Twilio API | Account SID + Auth Token |
-| `Resend API Key` | HTTP Header Auth | Name: `Authorization`, Value: `Bearer <RESEND_API_KEY>` |
+| `Courtside (Services) - Sub Account` | Twilio API | Account SID + Auth Token |
+| `KC Sendgrid` | SendGrid API | SendGrid API Key |
 
 **Values to have ready:**
 - Supabase project URL: `https://xkwywpqrthzownikeill.supabase.co`
 - Supabase service role key
-- Twilio Account SID, Auth Token
-- Resend API key and verified sender domain
+- Twilio Account SID, Auth Token (sub-account)
+- SendGrid API key and verified sender domain (`court-side.ai`)
 
 ---
 
@@ -241,36 +246,28 @@ return results;
 
 ---
 
-### Node 5: Send Reminder SMS
+### Node 5: Send an SMS/MMS/WhatsApp message
 
 | Property | Value |
 |---|---|
-| **Type** | HTTP Request |
-| **Position** | [1000, 300] |
-| **On Error** | Continue (using regular output) |
+| **Type** | Twilio (native node) |
+| **Node name** | `Send an SMS/MMS/WhatsApp message` |
+| **Position** | [1008, 320] |
+| **Credential** | `Courtside (Services) - Sub Account` |
 
-> Sends an SMS reminder to the lead via Twilio.
+> Sends an SMS reminder to the lead via the native Twilio node.
 
 **Parameters:**
-- Method: **POST**
-- URL: `https://api.twilio.com/2010-04-01/Accounts/YOUR_TWILIO_ACCOUNT_SID/Messages.json`
-- Authentication: **Predefined Credential Type** → **Twilio API** → select `Twilio API`
-- Send Body: **Yes**
-- Body Content Type: **Form Urlencoded**
 
-**Form Parameters:**
-
-| Name | Value (expression) |
+| Parameter | Value |
 |---|---|
-| `From` | `YOUR_TWILIO_SMS_NUMBER` |
-| `To` | `{{ $json.contact_phone }}` |
-| `Body` | `=Hi {{ $json.contact_first_name }}, this is a reminder that you have an appointment {{ $json.day_label }} at {{ $json.time_display }} with {{ $json.org_name }}. We look forward to speaking with you! Reply STOP to opt out.` |
+| From | `+18777662137` |
+| To | `={{ $json.contact_phone }}` |
+| Message | `=Hi {{ $json.contact_first_name }}, this is a reminder that you have an appointment {{ $json.day_label }} at {{ $json.time_display }} with {{ $json.org_name }}. We look forward to speaking with you! Reply STOP to opt out.` |
 
-> **From number:** Use the org's dedicated Twilio number. For V1, hardcode the number. For multi-tenant, you'd query the `phone_numbers` table for the org's SMS number. A simple enhancement is to add a "Get Org Phone" HTTP GET node before this.
->
 > **Example SMS:** "Hi Sarah, this is a reminder that you have an appointment today at 3:30 PM with Courtside Finance. We look forward to speaking with you! Reply STOP to opt out."
 
-**Connects to:** Send Reminder Email
+**Connects to:** Check Email (IF)
 
 ---
 
@@ -287,41 +284,31 @@ return results;
 - Value 1 (expression): `{{ $('Loop Over Appointments').item.json.contact_email }}`
 - Operation: **is not empty**
 
-**TRUE output connects to:** Send Email (HTTP Request)
+**TRUE output connects to:** Send an email (SendGrid)
 **FALSE output connects to:** Wait 1s
 
 ---
 
-### Node 7: Send Email (HTTP Request)
+### Node 7: Send an email
 
 | Property | Value |
 |---|---|
-| **Type** | HTTP Request |
-| **Position** | [1500, 200] |
-| **On Error** | Continue (using regular output) |
+| **Type** | SendGrid (native node) |
+| **Node name** | `Send an email` |
+| **Position** | [1536, 224] |
+| **Credential** | `KC Sendgrid` |
 
 **Parameters:**
-- Method: **POST**
-- URL: `https://api.resend.com/emails`
-- Authentication: **Generic Credential Type** → **HTTP Header Auth** → select `Resend API Key`
-- Send Headers: **Yes**
-  - `Content-Type`: `application/json`
-- Send Body: **Yes**
-- Body Content Type: **JSON**
-- Specify Body: **Using JSON**
 
-**JSON Body:**
-
-```
-={
-  "from": "Courtside AI <notifications@yourdomain.com>",
-  "to": "{{ $('Loop Over Appointments').item.json.contact_email }}",
-  "subject": "Appointment Reminder — {{ $('Loop Over Appointments').item.json.day_label === 'today' ? 'Today' : 'Tomorrow' }} at {{ $('Loop Over Appointments').item.json.time_display }}",
-  "html": "<div style='font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto;'><h2 style='color: #059669;'>Appointment Reminder</h2><p>Hi {{ $('Loop Over Appointments').item.json.contact_first_name }},</p><p>This is a friendly reminder that you have an appointment <strong>{{ $('Loop Over Appointments').item.json.day_label }}</strong> at <strong>{{ $('Loop Over Appointments').item.json.time_display }}</strong> with {{ $('Loop Over Appointments').item.json.org_name }}.</p><p>We look forward to speaking with you!</p><p style='color: #999; font-size: 12px; margin-top: 24px;'>— {{ $('Loop Over Appointments').item.json.org_name }}</p></div>"
-}
-```
-
-> **Sender domain:** Replace `notifications@yourdomain.com` with your verified Resend sender address.
+| Parameter | Value |
+|---|---|
+| Resource | Mail |
+| From Email | `notifications@court-side.ai` |
+| From Name | `Courtside Notifications` |
+| To Email | `={{ $('Loop Over Appointments').item.json.contact_email }}` |
+| Subject | `=Appointment Reminder — {{ $('Loop Over Appointments').item.json.day_label === 'today' ? 'Today' : 'Tomorrow' }} at {{ $('Loop Over Appointments').item.json.time_display }}` |
+| Content Type | `text/html` |
+| Content | `=<div style='font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto;'><h2 style='color: #059669;'>Appointment Reminder</h2><p>Hi {{ $('Loop Over Appointments').item.json.contact_first_name }},</p><p>This is a friendly reminder that you have an appointment <strong>{{ $('Loop Over Appointments').item.json.day_label }}</strong> at <strong>{{ $('Loop Over Appointments').item.json.time_display }}</strong> with {{ $('Loop Over Appointments').item.json.org_name }}.</p><p>We look forward to speaking with you!</p><p style='color: #999; font-size: 12px; margin-top: 24px;'>— {{ $('Loop Over Appointments').item.json.org_name }}</p></div>` |
 
 **Connects to:** Wait 1s
 
@@ -338,7 +325,7 @@ return results;
 - Wait: **1**
 - Unit: **Seconds**
 
-> Prevents hitting Twilio/Resend rate limits when processing multiple appointments.
+> Prevents hitting Twilio/SendGrid rate limits when processing multiple appointments.
 
 **Connects to:** Loop Over Appointments (loops back)
 
@@ -351,11 +338,11 @@ return results;
 | Morning Cron | main[0] | Get Upcoming Appointments |
 | Get Upcoming Appointments | main[0] | Enrich With Contact + Org |
 | Enrich With Contact + Org | main[0] | Loop Over Appointments |
-| Loop Over Appointments | main[1] (current item) | Send Reminder SMS |
-| Send Reminder SMS | main[0] | Send Reminder Email (IF) |
-| Send Reminder Email (IF) | TRUE | Send Email (HTTP Request) |
-| Send Reminder Email (IF) | FALSE | Wait 1s |
-| Send Email (HTTP Request) | main[0] | Wait 1s |
+| Loop Over Appointments | main[1] (current item) | Send an SMS/MMS/WhatsApp message |
+| Send an SMS/MMS/WhatsApp message | main[0] | Check Email (IF) |
+| Check Email (IF) | TRUE | Send an email (SendGrid) |
+| Check Email (IF) | FALSE | Wait 1s |
+| Send an email (SendGrid) | main[0] | Wait 1s |
 | Wait 1s | main[0] | Loop Over Appointments |
 
 ---
@@ -383,18 +370,18 @@ curl -X POST \
   --data-urlencode "Body=Hi Sarah, this is a reminder that you have an appointment today at 3:30 PM with Courtside Finance. We look forward to speaking with you! Reply STOP to opt out."
 ```
 
-### Test email via Resend
+### Test email via SendGrid
 
 ```bash
 curl -X POST \
-  https://api.resend.com/emails \
-  -H "Authorization: Bearer YOUR_RESEND_API_KEY" \
+  https://api.sendgrid.com/v3/mail/send \
+  -H "Authorization: Bearer YOUR_SENDGRID_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "from": "Courtside AI <notifications@yourdomain.com>",
-    "to": "your-test-email@example.com",
+    "personalizations": [{"to": [{"email": "your-test-email@example.com"}]}],
+    "from": {"email": "notifications@court-side.ai", "name": "Courtside Notifications"},
     "subject": "Appointment Reminder — Today at 3:30 PM",
-    "html": "<h2>Appointment Reminder</h2><p>Hi Sarah,</p><p>This is a friendly reminder that you have an appointment <strong>today</strong> at <strong>3:30 PM</strong> with Courtside Finance.</p><p>We look forward to speaking with you!</p>"
+    "content": [{"type": "text/html", "value": "<h2>Appointment Reminder</h2><p>Hi Sarah,</p><p>This is a friendly reminder that you have an appointment <strong>today</strong> at <strong>3:30 PM</strong> with Courtside Finance.</p><p>We look forward to speaking with you!</p>"}]
   }'
 ```
 
@@ -476,7 +463,7 @@ curl -X POST \
 | SMS fails with 400 | Invalid phone number format | Ensure phone numbers are E.164 (`+1XXXXXXXXXX`) |
 | SMS fails with 401 | Wrong Twilio credentials | Check Account SID and Auth Token in n8n credentials |
 | Email skipped for all | No contacts have email addresses | This is expected — SMS is the primary channel. Email is sent when available. |
-| Email fails with 403 | Resend sender domain not verified | Verify your sender domain in the Resend dashboard |
+| Email fails with 403 | SendGrid sender not verified | Verify your sender domain (`court-side.ai`) in SendGrid dashboard |
 | Duplicate reminders sent | Workflow ran multiple times in same day | Check execution history. Ensure cron expression is correct (`0 8 * * *` = once at 8 AM). |
 | Wrong time displayed | Timezone mismatch | The Code node formats time in `America/New_York`. Adjust if org uses a different timezone. |
 | Loop runs forever | Wait node not connected back to loop | Ensure Wait 1s → Loop Over Appointments connection exists |
@@ -502,7 +489,7 @@ curl -X POST \
 | Appointments in DB | Required | Post-call webhook (7.1) creates appointments for "booked" outcomes |
 | Contacts with phone numbers | Required | Leads must have valid phone numbers |
 | Twilio credentials | Required | For SMS reminders |
-| Resend API key | Optional | Only needed if contacts have email addresses |
+| SendGrid API key | Optional | Only needed if contacts have email addresses |
 | Supabase foreign key joins | Required | The query uses `contacts(...)` and `organizations(...)` embedded selects |
 
 ---

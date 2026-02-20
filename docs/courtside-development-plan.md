@@ -535,7 +535,7 @@ These blueprints are built **manually in the n8n visual editor**, not created vi
 |---|---|---|
 | 7.0 Notification Delivery | Edge Function + DB trigger | Shared by all workflows, no duplication |
 | 7.1 Retell Post-Call Webhook | N8N | Complex branching (8 outcomes), AI analysis node, visual debugging |
-| 7.2 Twilio SMS Webhook | Next.js API route | Simple linear flow, Twilio signature verification |
+| 7.2 Twilio SMS Webhook | Next.js API route | **DONE** ✓ — `src/app/api/webhooks/twilio/route.ts` |
 | 7.3 Stripe Webhook | Next.js API route | Standard pattern, `constructEvent()` verification |
 | 7.4 Campaign Processor | N8N | Scheduled job + loop + external API calls |
 | 7.5 Calendar Sync | Edge Function + DB trigger | OAuth token management, Google/Outlook SDKs. **Prep only for now — full integration deferred.** |
@@ -563,7 +563,7 @@ Any workflow → INSERT INTO notifications (type, title, body, user_id, referenc
   → Edge Function:
       1. Read notification_preferences for this user + event type
       2. In-app: already done (the row exists, bell icon reads it)
-      3. Email (if enabled): send via Resend
+      3. Email (if enabled): send via SendGrid
       4. SMS to broker (if enabled): send via Twilio to users.phone
 ```
 
@@ -573,17 +573,20 @@ Any workflow → INSERT INTO notifications (type, title, body, user_id, referenc
 
 **Logic:**
 1. Query `notification_preferences` for `user_id` + `type` mapping
-2. If email enabled → Resend API with notification title/body
+2. If email enabled → SendGrid API with notification title/body
 3. If SMS enabled → Twilio API to broker's phone number from `users.phone`
 4. Update `notifications` row with delivery metadata (optional, for debugging)
 
-**Dependencies:** Resend API key, Twilio credentials (already configured for SMS sending)
+**Dependencies:** SendGrid API key, Twilio credentials (already configured for SMS sending)
 
 ---
 
-### → 7.1 Retell Post-Call Webhook (XL) — N8N
+### → 7.1 Retell Post-Call Webhook (XL) — N8N — **DONE**
 
 *The most critical workflow. Outbound campaign calls only (for now). Inbound handling deferred.*
+
+**N8N Workflow:** `Outbound - Post Call Analysis` (ID: `E5ux4jNUupwQeD6sVPuvf`, 22 nodes)
+**Blueprint:** `docs/n8n-blueprints/retell-post-call.md`
 
 **Trigger:** Retell sends webhook when call ends (`call_analyzed` event)
 
@@ -621,7 +624,7 @@ Retell webhook POST → N8N
        → Insert into `appointments` (scheduled_at from AI, link to lead/contact/campaign/call)
          (Calendar sync fires automatically via DB trigger — this workflow does NOT call it)
        → Send confirmation SMS to lead via Twilio
-       → Send confirmation email to lead via Resend (if contact has email)
+       → Send confirmation email to lead via SendGrid (if contact has email)
        → INSERT INTO notifications (type: appointment_booked) → delivery handled by 7.0
 
      INTERESTED:
@@ -658,7 +661,7 @@ Retell webhook POST → N8N
 
 ---
 
-### → 7.2 Twilio SMS Webhook (M) — Next.js API Route
+### → 7.2 Twilio SMS Webhook (M) — Next.js API Route — **DONE**
 
 *Simple inbound SMS handling. API route at `src/app/api/webhooks/twilio/route.ts`.*
 
@@ -673,22 +676,31 @@ Twilio POST → /api/webhooks/twilio
   4. Check for STOP/UNSUBSCRIBE keyword in body:
      YES:
        → Insert into dnc_list (reason: sms_stop, phone: from_number)
-       → Set all active leads for this contact to bad_lead
+       → Set contacts.is_dnc = true
+       → Set all active leads for this contact to bad_lead (last_call_outcome: dnc)
        → Return TwiML opt-out confirmation response
      NO:
        → Insert into sms_messages (org_id, contact_id, direction: inbound, body, from_number, to_number)
-       → Create action_item (type: sms_reply, title: "[Contact Name] replied via SMS", description: message body)
-       → INSERT INTO notifications (type: sms_reply, reference_type: contact, reference_id: contact.id)
+       → Create action_item (type: sms_reply, title: "SMS reply from [number]", description: message preview)
+       → INSERT INTO notifications for all org users (type: sms_reply, reference_type: contact)
+         → DB trigger fires deliver-notification Edge Function
   5. Return TwiML response (empty — no auto-reply for now)
 ```
 
-**Auth:** Twilio signature verification using `TWILIO_AUTH_TOKEN` (not Supabase auth — this is an external webhook).
+**Auth:** Twilio signature verification using `TWILIO_AUTH_TOKEN` — manual HMAC-SHA1 via Node.js `crypto` (no `twilio` npm package needed).
 
-**Dependencies:** `twilio` npm package for signature verification.
+**Dependencies:** None (uses Node.js built-in `crypto`).
+
+**Production activation:**
+1. Set `TWILIO_AUTH_TOKEN` in Vercel env vars
+2. In Twilio console → Phone Number → "A Message Comes In" → `https://<your-domain>/api/webhooks/twilio` (POST)
+3. Ensure `phone_numbers` table has the Twilio number with `status: 'active'`
+
+**Note:** Twilio signature verification uses `request.url` — this must match the exact webhook URL configured in Twilio console (same scheme, domain, path). On Vercel this works automatically. If you later add a proxy/CDN that rewrites URLs, the signature check will fail.
 
 ---
 
-### → 7.3 Stripe Webhook (M) — Next.js API Route
+### → 7.3 Stripe Webhook (M) — Next.js API Route — **DONE**
 
 *Billing event sync. API route at `src/app/api/webhooks/stripe/route.ts`.*
 
@@ -701,26 +713,38 @@ Stripe POST → /api/webhooks/stripe
   2. Switch on event.type:
 
      checkout.session.completed:
-       → Extract customer ID from session
+       → Extract org_id from session.metadata or client_reference_id
        → Update organizations.stripe_customer_id (link Stripe to org)
 
-     customer.subscription.created / updated / deleted:
-       → Upsert subscriptions table (stripe_subscription_id, plan, status, current_period_start/end, usage limits)
+     customer.subscription.created / updated:
+       → Look up org by stripe_customer_id
+       → Upsert subscriptions table (stripe_subscription_id, plan_name, status, current_period_start/end)
+
+     customer.subscription.deleted:
+       → Set subscription status to "canceled"
 
      invoice.paid:
-       → Upsert invoices table (stripe_invoice_id, amount, status: paid, pdf_url, period)
+       → Upsert invoices table (stripe_invoice_id, amount, status: paid, hosted_invoice_url, period_label)
 
      invoice.payment_failed:
        → Upsert invoices table (status: failed)
-       → INSERT INTO notifications (type: payment_failed) → triggers email to broker via 7.0
+       → INSERT INTO notifications (type: payment_failed) for all org users → triggers email to broker via 7.0
 
-  3. Log workflow_events entry
-  4. Return 200
+  3. Return 200 { received: true }
 ```
 
 **Auth:** Stripe signature verification using `STRIPE_WEBHOOK_SECRET`.
 
-**Dependencies:** `stripe` npm package.
+**Dependencies:** `stripe` npm package (installed).
+
+**Production activation:**
+1. Set `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` in Vercel env vars
+2. In Stripe Dashboard → Developers → Webhooks → Add endpoint: `https://<your-domain>/api/webhooks/stripe`
+3. Subscribe to events: `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`
+4. Copy the signing secret to `STRIPE_WEBHOOK_SECRET`
+5. Ensure checkout sessions pass `metadata.org_id` or `client_reference_id` (wired in Phase 8)
+
+**Note:** The `subscriptions` table upsert uses `onConflict: "stripe_subscription_id"` — this requires a unique constraint on that column. Verify this exists in the DB. Similarly, `invoices` upserts on `stripe_invoice_id`. The webhook does not currently log to `workflow_events` — add in Phase 8 if needed.
 
 ---
 
@@ -741,9 +765,11 @@ Schedule Trigger (every 2 min)
         ERROR   → Update lead (retry_count++, last_activity_at) → Wait 2s → next lead
 ```
 
-**Deliverable:** Detailed markdown blueprint in `docs/n8n-blueprints/campaign-processor.md` with node configs, code snippets, JSON body templates, and curl test commands. Build manually in n8n visual editor.
+**Deliverable:** Detailed markdown blueprint in `docs/n8n-blueprints/campaign-processor.md` with node configs, code snippets, JSON body templates, and curl test commands.
 
-**Note:** A draft workflow was created via MCP (ID: `bIyP0QwEe37K6vCA`) but should be rebuilt manually using the blueprint for proper credential configuration and testing.
+**Built workflow:** `Campaign processor` (ID: `8KqM9bnUQ9v3TN868ymEp`) — 9 nodes, all connections wired. Edge Function `get-next-campaign-leads` deployed to Supabase.
+
+**Before activating:** Replace `YOUR_RETELL_API_KEY` placeholder in Create Retell Call node with actual Retell API key (or set up HTTP Header Auth credential). Test with pinned data first.
 
 ---
 
@@ -812,24 +838,30 @@ Logic:
 
 ---
 
-### → 7.6 Appointment Reminders (S) — N8N
+### → 7.6 Appointment Reminders (S) — N8N — **DONE**
 
 *Daily summary email deferred. Build appointment reminders only.*
 
-**Trigger:** N8N cron, morning check
+**Trigger:** N8N cron, morning check (8:00 AM ET daily)
 
 **Flow:**
 ```
-Schedule Trigger (morning, per timezone)
-  → Query appointments for today and tomorrow
-  → For each upcoming appointment:
-      → Send reminder SMS to lead via Twilio
-         "Reminder: You have an appointment [today/tomorrow] at [time] with [org_name]."
-      → Send reminder email to lead via Resend (if contact has email)
-  → (Optional) INSERT INTO notifications for broker awareness
+Schedule Trigger (8 AM ET)
+  → GET appointments for today + tomorrow (status=scheduled, with contact/org joins)
+  → Enrich: flatten + add "today"/"tomorrow" label + format time
+  → Loop over appointments:
+      → Send reminder SMS via Twilio
+      → IF contact has email → Send reminder email via SendGrid
+      → Wait 1s → loop back
 ```
 
-**Dependencies:** Twilio credentials, Resend API key.
+**Deliverable:** Blueprint in `docs/n8n-blueprints/appointment-reminders.md` + built workflow in n8n.
+
+**Built workflow:** `[Courtside V2] Appointment Reminders` (ID: `WC7dQT6s1MXIvdgN`) — 8 nodes, all connections wired.
+
+**Dependencies:** Twilio credentials (`Courtside (Services) - Sub Account`), SendGrid API key (`KC Sendgrid`).
+
+**Before activating:** Credentials already configured. Test with pinned data before activating the schedule.
 
 #### 7.6a Daily Summary Email — **DEFERRED**
 
@@ -897,6 +929,25 @@ Test complete workflows:
 - Organizations, users, contacts, leads, campaigns, calls, appointments, action items
 - Useful for demos and testing
 
+### → 9.4 Production Webhook & Billing Verification (M)
+
+**Stripe webhook production checklist:**
+- Verify unique constraints exist on `subscriptions.stripe_subscription_id` and `invoices.stripe_invoice_id` (required for upsert `onConflict`)
+- Create Stripe webhook endpoint in Dashboard → subscribe to the 6 event types
+- Set `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` in Vercel env vars
+- Wire Phase 8 checkout session creation to pass `metadata.org_id` (or `client_reference_id`) — the webhook relies on this to link Stripe customer to org
+- Set price `nickname` in Stripe product catalog (e.g., "Professional", "Enterprise") — the webhook uses this as `plan_name`
+- Test full billing flow: checkout → subscription created → invoice paid → subscription updated → payment failure → cancellation
+- Verify `deliver-notification` fires on `payment_failed` notification insert (email + SMS to broker)
+- Add `workflow_events` logging to Stripe webhook if needed for audit trail
+- Review Stripe retry behavior — the route returns 200 even on app errors to prevent retries, but consider whether failed org lookups should retry
+
+**Twilio webhook production checklist:**
+- Set `TWILIO_AUTH_TOKEN` in Vercel env vars
+- Configure Twilio number "A Message Comes In" URL → `https://<domain>/api/webhooks/twilio`
+- Verify `phone_numbers` table has Twilio numbers with `status: 'active'`
+- Note: Twilio signature verification uses `request.url` — if a proxy/CDN rewrites URLs, signature check will fail
+
 ---
 
 ## Phase Summary — Dependency Graph
@@ -941,12 +992,12 @@ Phase 5: Settings Pages [PARALLEL]        ├─ 6.7 Appointment management
          │                                ├─ 7.0 Notification delivery system ← DONE ✓
          │                                │     (Edge Function + DB triggers + vault)
          │                                │
-         │                                ├─ 7.1 Retell post-call webhook (N8N, XL)
-         │                                ├─ 7.2 Twilio SMS webhook (Next.js API route, M)
-         │                                ├─ 7.3 Stripe webhook (Next.js API route, M)
+         │                                ├─ 7.1 Retell post-call webhook (N8N, DONE ✓)
+         │                                ├─ 7.2 Twilio SMS webhook (Next.js API route, DONE ✓)
+         │                                ├─ 7.3 Stripe webhook (Next.js API route, DONE ✓)
          ├────────────────────────────────├─ 7.4 Campaign processor (N8N, DONE ✓)
          │                                ├─ 7.5 Calendar sync (Edge Function, PREP ONLY)
-         │                                └─ 7.6 Appointment reminders (N8N, S)
+         │                                └─ 7.6 Appointment reminders (N8N, DONE ✓)
          │                                     │
          └─────────────┬───────────────────────┘
                        │
