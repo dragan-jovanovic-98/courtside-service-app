@@ -100,13 +100,22 @@ export function Sidebar({ userName, userInitials, planName, onNavigate }: Sideba
 
         {/* User info */}
         <div className="flex items-center gap-[10px] px-3 py-[10px]">
-          <div className="flex size-[26px] shrink-0 items-center justify-center rounded-full bg-emerald-bg-strong text-[9px] font-bold text-emerald-light">
+          <Link
+            href="/settings/profile"
+            onClick={onNavigate}
+            className="flex size-[26px] shrink-0 items-center justify-center rounded-full bg-emerald-bg-strong text-[9px] font-bold text-emerald-light transition-opacity hover:opacity-80"
+            title="Edit profile"
+          >
             {userInitials}
-          </div>
+          </Link>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[11px] text-text-muted">
+            <Link
+              href="/settings/profile"
+              onClick={onNavigate}
+              className="block truncate text-[11px] text-text-muted hover:text-text-primary"
+            >
               {userName}
-            </div>
+            </Link>
             {planName && (
               <div className="text-[10px] text-text-dim">{planName}</div>
             )}

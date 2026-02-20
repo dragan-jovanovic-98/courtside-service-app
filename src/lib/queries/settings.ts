@@ -123,9 +123,41 @@ export async function getBillingData() {
     .order("created_at", { ascending: false })
     .limit(10);
 
+  // Get phone numbers for this org
+  const { data: phoneNumbers } = await supabase
+    .from("phone_numbers")
+    .select("*")
+    .eq("org_id", userRow.org_id)
+    .order("created_at", { ascending: true });
+
+  // Get usage: total call minutes this billing period
+  const periodStart = subscription?.current_period_start ?? null;
+  let totalCallMinutes = 0;
+
+  const callsQuery = supabase
+    .from("calls")
+    .select("duration")
+    .eq("org_id", userRow.org_id);
+
+  if (periodStart) {
+    callsQuery.gte("started_at", periodStart);
+  }
+
+  const { data: calls } = await callsQuery;
+  if (calls) {
+    totalCallMinutes = Math.round(
+      calls.reduce((sum, c) => sum + (c.duration ?? 0), 0) / 60
+    );
+  }
+
   return {
     subscription: subscription ?? null,
     invoices: invoices ?? [],
+    phoneNumbers: phoneNumbers ?? [],
+    usage: {
+      callMinutes: totalCallMinutes,
+      phoneNumberCount: phoneNumbers?.length ?? 0,
+    },
   };
 }
 

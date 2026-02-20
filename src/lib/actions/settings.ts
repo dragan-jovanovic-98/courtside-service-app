@@ -107,17 +107,41 @@ export async function inviteTeamMember(formData: FormData) {
   const email = formData.get("email") as string;
   const role = (formData.get("role") as string) ?? "member";
 
-  // Create a placeholder user row with invited status
-  const { error } = await supabase.from("users").insert({
-    id: crypto.randomUUID(),
-    email,
-    first_name: email.split("@")[0],
-    org_id: caller.org_id,
-    role: role as "member" | "admin",
-    status: "invited",
-  });
+  // Use Supabase Admin API to invite the user via email
+  const { createClient: createAdminClient } = await import("@supabase/supabase-js");
+  const adminSupabase = createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
 
-  if (error) return { error: error.message };
+  const { data: inviteData, error: inviteError } =
+    await adminSupabase.auth.admin.inviteUserByEmail(email, {
+      data: {
+        org_id: caller.org_id,
+        role,
+        invited_by: user.id,
+      },
+      redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"}/auth/callback`,
+    });
+
+  if (inviteError) return { error: inviteError.message };
+
+  // Create the user row linked to the invited auth user
+  if (inviteData?.user) {
+    const { error: insertError } = await adminSupabase.from("users").insert({
+      id: inviteData.user.id,
+      email,
+      first_name: email.split("@")[0],
+      org_id: caller.org_id,
+      role: role as "member" | "admin",
+      status: "invited",
+    });
+
+    if (insertError) {
+      console.error("Failed to create user row for invite:", insertError.message);
+      // Don't fail — the auth invite was sent, user row can be created on first login
+    }
+  }
 
   revalidatePath("/settings/team");
   return { success: true };

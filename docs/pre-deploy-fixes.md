@@ -17,7 +17,7 @@
 ## Sidebar / Navigation
 
 - [x] ~~**Add sign-out button** — Added LogOut icon button next to user info in sidebar~~ *(fixed during testing)*
-- [ ] **User avatar → profile picture** — Currently shows initials in an emerald circle. Consider supporting profile photo upload (or at minimum, make the initials area clickable to go to profile settings).
+- [x] ~~**User avatar → profile picture** — Initials and name now link to `/settings/profile`.~~ *(fixed)*
 
 ---
 
@@ -25,8 +25,8 @@
 
 - [x] ~~**Wire billing page to real data** — Now queries `subscriptions` and `invoices` tables. Shows empty states when no Stripe data exists.~~ *(wired during testing)*
 - [ ] **Wire "Open Stripe Billing Portal" link** — Deferred until production Stripe setup. Edge function `stripe-portal-url` exists, just needs to be connected.
-- [ ] **Usage tracking (minutes, phone numbers)** — Progress bars show placeholders. Need a usage tracking mechanism.
-- [ ] **Phone numbers table** — Removed mock data. Needs a `phone_numbers` table or Twilio API integration.
+- [x] ~~**Usage tracking (minutes, phone numbers)** — Progress bars now show real call minutes and phone number count from DB.~~ *(wired)*
+- [x] ~~**Phone numbers table** — Billing page now shows phone numbers from `phone_numbers` table with type, status, call/text counts.~~ *(wired)*
 
 ## Campaigns
 
@@ -39,7 +39,7 @@
 
 ## Team
 
-- [ ] **Proper team invite flow** — Needs Supabase Auth `inviteUserByEmail` (admin API) to send real invite emails.
+- [x] ~~**Proper team invite flow** — Now uses Supabase Auth `inviteUserByEmail` admin API. Sends real invite email, creates user row linked to auth user.~~ *(wired)*
 - [x] ~~Add error handling to invite modal~~ *(fixed during testing)*
 
 ## Settings Pages Wired

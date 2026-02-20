@@ -7,6 +7,8 @@ export default async function BillingPage() {
     <BillingClient
       subscription={data?.subscription ?? null}
       invoices={data?.invoices ?? []}
+      phoneNumbers={data?.phoneNumbers ?? []}
+      usage={data?.usage ?? { callMinutes: 0, phoneNumberCount: 0 }}
     />
   );
 }

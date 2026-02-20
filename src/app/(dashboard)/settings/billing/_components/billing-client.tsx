@@ -22,6 +22,28 @@ type Invoice = {
   period_label: string | null;
 };
 
+type PhoneNumber = {
+  id: string;
+  number: string;
+  friendly_name: string | null;
+  type: string | null;
+  status: string;
+  agent_id: string | null;
+  total_texts_sent: number | null;
+  total_calls_handled: number | null;
+};
+
+type Usage = {
+  callMinutes: number;
+  phoneNumberCount: number;
+};
+
+// Plan limits — these would come from Stripe metadata in production
+const PLAN_LIMITS = {
+  callMinutes: 1000,
+  phoneNumbers: 5,
+};
+
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString("en-US", {
@@ -36,12 +58,25 @@ function formatCurrency(cents: number | null): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+function formatPhone(e164: string): string {
+  // +14165551234 → (416) 555-1234
+  const digits = e164.replace(/\D/g, "");
+  if (digits.length === 11 && digits[0] === "1") {
+    return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+  }
+  return e164;
+}
+
 export function BillingClient({
   subscription,
   invoices,
+  phoneNumbers,
+  usage,
 }: {
   subscription: Subscription;
   invoices: Invoice[];
+  phoneNumbers: PhoneNumber[];
+  usage: Usage;
 }) {
   const planName = subscription?.plan ?? "Free";
   const planStatus = subscription?.status ?? "none";
@@ -84,16 +119,20 @@ export function BillingClient({
         <div className="mb-3.5">
           <div className="mb-1.5 flex justify-between text-xs text-text-dim">
             <span>AI Call Minutes</span>
-            <span className="font-semibold text-text-primary">—</span>
+            <span className="font-semibold text-text-primary">
+              {usage.callMinutes} / {PLAN_LIMITS.callMinutes}
+            </span>
           </div>
-          <ProgressBar value={0} max={100} color={tokens.emerald} />
+          <ProgressBar value={usage.callMinutes} max={PLAN_LIMITS.callMinutes} color={tokens.emerald} />
         </div>
         <div>
           <div className="mb-1.5 flex justify-between text-xs text-text-dim">
             <span>Phone Numbers</span>
-            <span className="font-semibold text-text-primary">—</span>
+            <span className="font-semibold text-text-primary">
+              {usage.phoneNumberCount} / {PLAN_LIMITS.phoneNumbers}
+            </span>
           </div>
-          <ProgressBar value={0} max={100} color={tokens.blue} />
+          <ProgressBar value={usage.phoneNumberCount} max={PLAN_LIMITS.phoneNumbers} color={tokens.blue} />
         </div>
       </div>
 
@@ -102,8 +141,8 @@ export function BillingClient({
         {(
           [
             [monthlyAmount, "Monthly Cost", "text-text-primary"],
-            ["—", "Per Extra Min", "text-amber-light"],
-            ["—", "Saved vs. Manual", "text-emerald-light"],
+            [`${usage.callMinutes} min`, "Minutes Used", "text-amber-light"],
+            [`${usage.phoneNumberCount}`, "Phone Numbers", "text-emerald-light"],
           ] as const
         ).map(([val, label, color]) => (
           <div
@@ -114,6 +153,50 @@ export function BillingClient({
             <div className="text-[10px] text-text-dim">{label}</div>
           </div>
         ))}
+      </div>
+
+      {/* Phone Numbers */}
+      <div className="mb-2.5 rounded-xl border border-border-default bg-surface-card p-5">
+        <SectionLabel>Phone Numbers</SectionLabel>
+        {phoneNumbers.length > 0 ? (
+          phoneNumbers.map((pn, i) => (
+            <div
+              key={pn.id}
+              className={`flex items-center justify-between py-2 ${
+                i < phoneNumbers.length - 1 ? "border-b border-border-light" : ""
+              }`}
+            >
+              <div>
+                <span className="text-[13px] font-medium text-text-primary">
+                  {formatPhone(pn.number)}
+                </span>
+                {pn.friendly_name && (
+                  <span className="ml-2 text-[11px] text-text-dim">
+                    {pn.friendly_name}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2.5">
+                <ColoredBadge color={pn.type === "inbound" ? "blue" : "purple"}>
+                  {pn.type ?? "voice"}
+                </ColoredBadge>
+                <span className="text-[11px] tabular-nums text-text-dim">
+                  {pn.total_calls_handled ?? 0} calls
+                </span>
+                <span className="text-[11px] tabular-nums text-text-dim">
+                  {pn.total_texts_sent ?? 0} texts
+                </span>
+                <ColoredBadge color={pn.status === "active" ? "emerald" : "amber"}>
+                  {pn.status}
+                </ColoredBadge>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="py-4 text-center text-[13px] text-text-dim">
+            No phone numbers assigned yet
+          </div>
+        )}
       </div>
 
       {/* Recent Invoices */}
