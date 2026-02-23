@@ -42,6 +42,7 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith("/auth");
 
   const isApiRoute = request.nextUrl.pathname.startsWith("/api");
+  const isAdminRoute = request.nextUrl.pathname.startsWith("/admin");
 
   if (!user && !isAuthRoute && !isApiRoute) {
     const url = request.nextUrl.clone();
@@ -49,11 +50,43 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Redirect authenticated users away from auth pages
-  if (user && isAuthRoute) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
-    return NextResponse.redirect(url);
+  if (user && (isAdminRoute || isAuthRoute)) {
+    const { data: profile } = await supabase
+      .from("users")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+
+    const isSuperAdmin = profile?.role === "super_admin";
+
+    // Admin route: non-admins get redirected to dashboard
+    if (isAdminRoute && !isSuperAdmin) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/dashboard";
+      return NextResponse.redirect(url);
+    }
+
+    // Auth pages: redirect to appropriate home
+    if (isAuthRoute) {
+      const url = request.nextUrl.clone();
+      url.pathname = isSuperAdmin ? "/admin" : "/dashboard";
+      return NextResponse.redirect(url);
+    }
+  }
+
+  // Super admins visiting /dashboard get redirected to /admin
+  if (user && request.nextUrl.pathname.startsWith("/dashboard")) {
+    const { data: profile } = await supabase
+      .from("users")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+
+    if (profile?.role === "super_admin") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/admin";
+      return NextResponse.redirect(url);
+    }
   }
 
   return supabaseResponse;

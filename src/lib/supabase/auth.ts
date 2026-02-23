@@ -18,7 +18,14 @@ export async function signIn(formData: FormData) {
     return { error: error.message };
   }
 
-  redirect("/dashboard");
+  // Check if super_admin — redirect to admin panel
+  const { data: profile } = await supabase
+    .from("users")
+    .select("role")
+    .eq("email", email)
+    .single();
+
+  redirect(profile?.role === "super_admin" ? "/admin" : "/dashboard");
 }
 
 export async function signUp(formData: FormData) {
