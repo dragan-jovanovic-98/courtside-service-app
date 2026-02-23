@@ -29,7 +29,7 @@ serve(async (req) => {
       const origin = req.headers.get("origin") || req.headers.get("referer");
       const baseUrl = origin
         ? new URL(origin).origin
-        : "http://localhost:3000";
+        : "https://services.court-side.ai";
       returnUrl = `${baseUrl}/settings/billing`;
     }
 

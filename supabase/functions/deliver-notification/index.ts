@@ -152,7 +152,7 @@ function buildNotificationEmail(title: string, body: string, type: string): stri
     campaign_completed: "#a78bfa",
   };
   const accent = accentColors[type] || "#34d399";
-  const appUrl = Deno.env.get("APP_URL") || "https://court-side.ai";
+  const appUrl = Deno.env.get("APP_URL") || "https://services.court-side.ai";
 
   return `<!DOCTYPE html>
 <html lang="en">
