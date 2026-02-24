@@ -77,6 +77,7 @@ export async function updateOrganization(formData: FormData) {
       business_phone: formData.get("phone") as string,
       website: formData.get("website") as string,
       address: formData.get("address") as string,
+      timezone: formData.get("timezone") as string,
     })
     .eq("id", userRow.org_id);
 

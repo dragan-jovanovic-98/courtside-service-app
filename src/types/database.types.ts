@@ -677,6 +677,7 @@ export type Database = {
           industry: string | null
           name: string
           stripe_customer_id: string | null
+          timezone: string | null
           updated_at: string
           website: string | null
         }
@@ -690,6 +691,7 @@ export type Database = {
           industry?: string | null
           name: string
           stripe_customer_id?: string | null
+          timezone?: string | null
           updated_at?: string
           website?: string | null
         }
@@ -703,6 +705,7 @@ export type Database = {
           industry?: string | null
           name?: string
           stripe_customer_id?: string | null
+          timezone?: string | null
           updated_at?: string
           website?: string | null
         }
