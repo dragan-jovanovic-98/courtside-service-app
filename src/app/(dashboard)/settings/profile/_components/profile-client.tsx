@@ -143,10 +143,20 @@ export function ProfileClient({
           name="phone"
           defaultValue={profile?.phone ?? ""}
         />
-        <SettingsField
+        <SettingsSelect
           label="Timezone"
           name="timezone"
           defaultValue={profile?.timezone ?? ""}
+          options={[
+            { value: "America/New_York", label: "America/New_York (Eastern)" },
+            { value: "America/Chicago", label: "America/Chicago (Central)" },
+            { value: "America/Denver", label: "America/Denver (Mountain)" },
+            { value: "America/Los_Angeles", label: "America/Los_Angeles (Pacific)" },
+            { value: "America/Toronto", label: "America/Toronto (Eastern)" },
+            { value: "America/Vancouver", label: "America/Vancouver (Pacific)" },
+            { value: "America/Phoenix", label: "America/Phoenix (MST, no DST)" },
+            { value: "Europe/London", label: "Europe/London (GMT/BST)" },
+          ]}
         />
         <Button
           type="submit"
@@ -254,6 +264,40 @@ function SettingsField({
         disabled={disabled}
         className="w-full rounded-lg border border-border-default bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-[13px] text-text-primary outline-none disabled:opacity-60"
       />
+    </div>
+  );
+}
+
+function SettingsSelect({
+  label,
+  name,
+  defaultValue,
+  options,
+}: {
+  label: string;
+  name: string;
+  defaultValue?: string;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <div className="mb-3.5">
+      <label className="mb-1 block text-xs font-medium text-text-dim">
+        {label}
+      </label>
+      <select
+        name={name}
+        defaultValue={defaultValue}
+        className="w-full appearance-none rounded-lg border border-border-default bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-[13px] text-text-primary outline-none"
+      >
+        <option value="" disabled>
+          Select timezone...
+        </option>
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
