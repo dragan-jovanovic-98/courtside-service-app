@@ -53,7 +53,7 @@ export function CampaignsClient({
     const text = await file.text();
     const { error } = await callEdgeFunction("import-leads", {
       campaign_id: campaignId,
-      csv_text: text,
+      csv: text,
     });
     if (error) {
       alert(`Failed to import leads: ${error}`);

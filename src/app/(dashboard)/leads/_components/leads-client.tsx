@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
+import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
   Phone,
@@ -15,9 +16,12 @@ import {
   Check,
   XCircle,
   TrendingUp,
+  X,
+  FileSpreadsheet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ColoredBadge } from "@/components/ui/colored-badge";
 import { SectionLabel } from "@/components/ui/section-label";
 import { DropdownSelect } from "@/components/ui/dropdown-select";
@@ -83,18 +87,348 @@ function outcomeKey(outcome: string): string {
   return outcome.toLowerCase().replace(/ /g, "_");
 }
 
+// ---------------------------------------------------------------------------
+// Import Leads Modal
+// ---------------------------------------------------------------------------
+function ImportModal({
+  campaigns,
+  onClose,
+  onSuccess,
+}: {
+  campaigns: { id: string; name: string }[];
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [campaignId, setCampaignId] = useState(campaigns[0]?.id ?? "");
+  const [file, setFile] = useState<File | null>(null);
+  const [rowCount, setRowCount] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] ?? null;
+    setFile(f);
+    setError(null);
+    if (f) {
+      f.text().then((text) => {
+        const lines = text.trim().split("\n");
+        setRowCount(Math.max(0, lines.length - 1)); // minus header
+      });
+    } else {
+      setRowCount(0);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!campaignId) {
+      setError("Select a campaign");
+      return;
+    }
+    if (!file) {
+      setError("Select a CSV file");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+
+    const csvText = await file.text();
+    const { data, error: err } = await callEdgeFunction<{
+      imported: number;
+      duplicates: number;
+      dnc_excluded: number;
+    }>("import-leads", {
+      campaign_id: campaignId,
+      csv: csvText,
+    });
+
+    setLoading(false);
+    if (err) {
+      setError(err);
+    } else {
+      const msg = data
+        ? `Imported ${data.imported} leads (${data.duplicates} duplicates, ${data.dnc_excluded} DNC excluded)`
+        : "Import complete";
+      alert(msg);
+      onSuccess();
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div className="w-full max-w-md rounded-xl border border-border-default bg-bg-main p-6 shadow-xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-text-primary">Import Leads</h2>
+          <button onClick={onClose} className="text-text-dim hover:text-text-muted">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label className="text-text-muted">Campaign</Label>
+            {campaigns.length === 0 ? (
+              <p className="text-sm text-red-light">
+                No campaigns found. Create a campaign first.
+              </p>
+            ) : (
+              <select
+                className="w-full appearance-none rounded-lg border border-border-default bg-surface-input px-3 py-2 text-sm text-text-primary outline-none"
+                value={campaignId}
+                onChange={(e) => setCampaignId(e.target.value)}
+              >
+                {campaigns.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-text-muted">CSV File</Label>
+            <div
+              onClick={() => fileRef.current?.click()}
+              className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed border-border-default bg-surface-card p-6 text-center hover:border-emerald-dark transition-colors"
+            >
+              <FileSpreadsheet size={28} className="text-text-dim" />
+              {file ? (
+                <>
+                  <span className="text-sm font-medium text-text-primary">{file.name}</span>
+                  <span className="text-xs text-text-dim">{rowCount} rows</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-sm text-text-muted">Click to select a CSV file</span>
+                  <span className="text-xs text-text-dim">
+                    Columns: first_name, last_name, phone, email, company, source
+                  </span>
+                </>
+              )}
+            </div>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+          </div>
+
+          {error && <p className="text-sm text-red-light">{error}</p>}
+
+          <div className="flex gap-2 pt-2">
+            <Button variant="ghost" className="flex-1" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 gap-1.5 bg-emerald-dark text-white hover:bg-emerald-dark/90"
+              onClick={handleImport}
+              disabled={loading || !campaignId || !file}
+            >
+              {loading ? "Importing…" : (
+                <>
+                  <Upload size={14} /> Import {rowCount > 0 && `(${rowCount})`}
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Add Lead Modal
+// ---------------------------------------------------------------------------
+function AddLeadModal({
+  campaigns,
+  onClose,
+  onSuccess,
+}: {
+  campaigns: { id: string; name: string }[];
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [campaignId, setCampaignId] = useState(campaigns[0]?.id ?? "");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [company, setCompany] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleAdd = async () => {
+    if (!campaignId) {
+      setError("Select a campaign");
+      return;
+    }
+    if (!firstName.trim()) {
+      setError("First name is required");
+      return;
+    }
+    if (!phone.trim()) {
+      setError("Phone number is required");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+
+    // Build a 1-row CSV and use the existing import-leads edge function
+    const header = "first_name,last_name,phone,email,company,source";
+    const escape = (v: string) => v.replace(/,/g, "").replace(/\n/g, "");
+    const row = [
+      escape(firstName),
+      escape(lastName),
+      escape(phone),
+      escape(email),
+      escape(company),
+      "manual",
+    ].join(",");
+
+    const { error: err } = await callEdgeFunction("import-leads", {
+      campaign_id: campaignId,
+      csv: `${header}\n${row}`,
+    });
+
+    setLoading(false);
+    if (err) {
+      setError(err);
+    } else {
+      onSuccess();
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div className="w-full max-w-md rounded-xl border border-border-default bg-bg-main p-6 shadow-xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-text-primary">Add Lead</h2>
+          <button onClick={onClose} className="text-text-dim hover:text-text-muted">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-text-muted">Campaign</Label>
+            {campaigns.length === 0 ? (
+              <p className="text-sm text-red-light">
+                No campaigns found. Create a campaign first.
+              </p>
+            ) : (
+              <select
+                className="w-full appearance-none rounded-lg border border-border-default bg-surface-input px-3 py-2 text-sm text-text-primary outline-none"
+                value={campaignId}
+                onChange={(e) => setCampaignId(e.target.value)}
+              >
+                {campaigns.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-text-muted">First name *</Label>
+              <Input
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                placeholder="John"
+                className="border-border-default bg-surface-input text-text-primary placeholder:text-text-dim"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-text-muted">Last name</Label>
+              <Input
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                placeholder="Smith"
+                className="border-border-default bg-surface-input text-text-primary placeholder:text-text-dim"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-text-muted">Phone *</Label>
+            <Input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+1 555-123-4567"
+              className="border-border-default bg-surface-input text-text-primary placeholder:text-text-dim"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-text-muted">Email</Label>
+            <Input
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="john@company.com"
+              className="border-border-default bg-surface-input text-text-primary placeholder:text-text-dim"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-text-muted">Company</Label>
+            <Input
+              value={company}
+              onChange={(e) => setCompany(e.target.value)}
+              placeholder="Acme Corp"
+              className="border-border-default bg-surface-input text-text-primary placeholder:text-text-dim"
+            />
+          </div>
+
+          {error && <p className="text-sm text-red-light">{error}</p>}
+
+          <div className="flex gap-2 pt-2">
+            <Button variant="ghost" className="flex-1" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 gap-1.5 bg-emerald-dark text-white hover:bg-emerald-dark/90"
+              onClick={handleAdd}
+              disabled={loading || !campaignId}
+            >
+              {loading ? "Adding…" : (
+                <>
+                  <Plus size={14} /> Add Lead
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 export function LeadsClient({
   leads,
   stats,
+  campaigns,
 }: {
   leads: LeadListItem[];
   stats: { total: number; followUps: number; appointments: number; new: number };
+  campaigns: { id: string; name: string }[];
 }) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [outcomeFilter, setOutcomeFilter] = useState("all");
   const [detailId, setDetailId] = useState<string | null>(null);
   const [timeline] = useState<TimelineEvent[]>([]);
+  const [showImport, setShowImport] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
 
   const filtered = leads.filter((l) => {
     const matchesSearch =
@@ -112,6 +446,12 @@ export function LeadsClient({
         outcomeKey(l.outcome) === outcomeKey(outcomeFilter));
     return matchesSearch && matchesStatus && matchesOutcome;
   });
+
+  const handleModalSuccess = () => {
+    setShowImport(false);
+    setShowAdd(false);
+    router.refresh();
+  };
 
   // Detail View
   if (detailId) {
@@ -321,14 +661,33 @@ export function LeadsClient({
   // List View
   return (
     <div>
+      {/* Modals */}
+      {showImport && (
+        <ImportModal
+          campaigns={campaigns}
+          onClose={() => setShowImport(false)}
+          onSuccess={handleModalSuccess}
+        />
+      )}
+      {showAdd && (
+        <AddLeadModal
+          campaigns={campaigns}
+          onClose={() => setShowAdd(false)}
+          onSuccess={handleModalSuccess}
+        />
+      )}
+
       {/* Header */}
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-text-primary">Leads</h1>
         <div className="flex gap-2">
-          <Button variant="ghost" className="gap-1.5">
+          <Button variant="ghost" className="gap-1.5" onClick={() => setShowImport(true)}>
             <Upload size={14} /> Import
           </Button>
-          <Button className="gap-1.5 bg-emerald-dark text-white hover:bg-emerald-dark/90">
+          <Button
+            className="gap-1.5 bg-emerald-dark text-white hover:bg-emerald-dark/90"
+            onClick={() => setShowAdd(true)}
+          >
             <Plus size={14} /> Add Lead
           </Button>
         </div>
@@ -391,7 +750,10 @@ export function LeadsClient({
           title="No leads yet"
           description="Import your first leads to start building your pipeline."
           action={
-            <Button className="gap-1.5 bg-emerald-dark text-white hover:bg-emerald-dark/90">
+            <Button
+              className="gap-1.5 bg-emerald-dark text-white hover:bg-emerald-dark/90"
+              onClick={() => setShowImport(true)}
+            >
               <Upload size={14} /> Import your first leads
             </Button>
           }
