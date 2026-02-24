@@ -355,7 +355,7 @@ export function CalendarClient({
                       const { error } = await callEdgeFunction("reschedule-appointment", {
                         appointment_id: selAppt.id,
                         scheduled_at: new Date(rescheduleValue).toISOString(),
-                      }, "PATCH");
+                      });
                       setActionBusy(false);
                       if (error) alert(`Reschedule failed: ${error}`);
                       else {
@@ -399,7 +399,7 @@ export function CalendarClient({
                 setActionBusy(true);
                 const { error } = await callEdgeFunction("cancel-appointment", {
                   appointment_id: selAppt.id,
-                }, "PATCH");
+                });
                 setActionBusy(false);
                 if (error) alert(`Cancel failed: ${error}`);
                 else {

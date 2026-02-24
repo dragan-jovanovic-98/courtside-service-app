@@ -75,7 +75,6 @@ type Verification = {
   business_address: string | null;
   province_or_state: string | null;
   country: string | null;
-  website_url: string | null;
   tax_id: string | null;
   state_registration_number: string | null;
   rep_full_name: string | null;
@@ -132,25 +131,30 @@ export function VerificationClient({ verification }: { verification: Verificatio
   const handleContinue = () => {
     if (!formRef.current) return;
     const form = new FormData(formRef.current);
-    const legalName = (form.get("legal_business_name") as string)?.trim();
-    if (!legalName) {
-      setFieldErrors({ legal_business_name: "Legal business name is required." });
-      return;
-    }
+    const errors: Record<string, string> = {};
 
-    // Validate registration number
-    if (regType) {
+    // Validate all step 1 required fields
+    const legalName = (form.get("legal_business_name") as string)?.trim();
+    if (!legalName) errors.legal_business_name = "Legal business name is required.";
+
+    const businessAddress = (form.get("business_address") as string)?.trim();
+    if (!businessAddress) errors.business_address = "Business address is required.";
+
+    if (!regType) {
+      errors.registration_type = "Please select a registration type.";
+    } else {
       const regValue = regType === "bn" || regType === "ein"
         ? (form.get("tax_id") as string)
         : (form.get("state_registration_number") as string);
       const regError = validateRegistrationNumber(regType, regValue || "");
       if (regError) {
         const fieldName = regType === "bn" || regType === "ein" ? "tax_id" : "state_registration_number";
-        setFieldErrors({ [fieldName]: regError });
-        return;
+        errors[fieldName] = regError;
       }
-    } else {
-      setFieldErrors({ registration_type: "Please select a registration type." });
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
       return;
     }
 
@@ -163,20 +167,21 @@ export function VerificationClient({ verification }: { verification: Verificatio
     const form = new FormData(formRef.current);
 
     // Validate step 2 required fields
+    const errors: Record<string, string> = {};
     const repName = (form.get("rep_full_name") as string)?.trim();
     const repEmail = (form.get("rep_email") as string)?.trim();
-    if (!repName || !repEmail) {
-      const errors: Record<string, string> = {};
-      if (!repName) errors.rep_full_name = "Full name is required.";
-      if (!repEmail) errors.rep_email = "Email is required.";
-      setFieldErrors(errors);
-      return;
-    }
+    const repPhone = (form.get("rep_phone") as string)?.trim();
+    const repTitle = (form.get("rep_job_title") as string)?.trim();
+    const repDob = (form.get("rep_dob") as string)?.trim();
 
-    // Re-validate step 1 fields (in case of edge cases)
-    const legalName = (form.get("legal_business_name") as string)?.trim();
-    if (!legalName) {
-      setError("Legal business name is required. Please go back and fill it in.");
+    if (!repName) errors.rep_full_name = "Full name is required.";
+    if (!repEmail) errors.rep_email = "Email is required.";
+    if (!repPhone) errors.rep_phone = "Phone number is required.";
+    if (!repTitle) errors.rep_job_title = "Job title is required.";
+    if (!repDob) errors.rep_dob = "Date of birth is required.";
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
       return;
     }
 
@@ -192,7 +197,6 @@ export function VerificationClient({ verification }: { verification: Verificatio
       business_address: form.get("business_address") as string,
       province_or_state: form.get("province_or_state") as string,
       country,
-      website_url: form.get("website_url") as string,
       tax_id: form.get("tax_id") as string,
       state_registration_number: form.get("state_registration_number") as string,
       registration_type: regType,
@@ -384,8 +388,12 @@ export function VerificationClient({ verification }: { verification: Verificatio
               </div>
             )}
 
-            <VField name="business_address" label="Business Address" defaultValue={verification?.business_address ?? ""} />
-            <VField name="website_url" label="Website URL" defaultValue={verification?.website_url ?? ""} />
+            <VField
+              name="business_address"
+              label="Business Address"
+              defaultValue={verification?.business_address ?? ""}
+              error={fieldErrors.business_address}
+            />
 
             <Button
               type="button"
@@ -420,7 +428,12 @@ export function VerificationClient({ verification }: { verification: Verificatio
                 defaultValue={verification?.rep_full_name ?? ""}
                 error={fieldErrors.rep_full_name}
               />
-              <VField name="rep_job_title" label="Job Title" defaultValue={verification?.rep_job_title ?? ""} />
+              <VField
+                name="rep_job_title"
+                label="Job Title"
+                defaultValue={verification?.rep_job_title ?? ""}
+                error={fieldErrors.rep_job_title}
+              />
             </div>
             <div className="grid grid-cols-2 gap-x-3">
               <VField
@@ -429,9 +442,19 @@ export function VerificationClient({ verification }: { verification: Verificatio
                 defaultValue={verification?.rep_email ?? ""}
                 error={fieldErrors.rep_email}
               />
-              <VField name="rep_phone" label="Phone Number" defaultValue={verification?.rep_phone ?? ""} />
+              <VField
+                name="rep_phone"
+                label="Phone Number"
+                defaultValue={verification?.rep_phone ?? ""}
+                error={fieldErrors.rep_phone}
+              />
             </div>
-            <VField name="rep_dob" label="Date of Birth" defaultValue={verification?.rep_dob ?? ""} />
+            <VField
+              name="rep_dob"
+              label="Date of Birth"
+              defaultValue={verification?.rep_dob ?? ""}
+              error={fieldErrors.rep_dob}
+            />
             <div className="mt-2 flex gap-2.5">
               <Button
                 type="button"
