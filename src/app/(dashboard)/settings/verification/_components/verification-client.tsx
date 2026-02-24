@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Clock, Check, ChevronLeft, CheckCircle } from "lucide-react";
+import { Clock, Check, ChevronLeft, ChevronRight, CheckCircle, Calendar as CalendarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SectionLabel } from "@/components/ui/section-label";
 import { cn } from "@/lib/utils";
@@ -449,7 +449,7 @@ export function VerificationClient({ verification }: { verification: Verificatio
                 error={fieldErrors.rep_phone}
               />
             </div>
-            <VField
+            <VDatePicker
               name="rep_dob"
               label="Date of Birth"
               defaultValue={verification?.rep_dob ?? ""}
@@ -533,6 +533,168 @@ function VSelect({
           <option key={o} value={o}>{o}</option>
         ))}
       </select>
+    </div>
+  );
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+function getDaysInMonth(year: number, month: number) {
+  return new Date(year, month + 1, 0).getDate();
+}
+
+function getFirstDayOfMonth(year: number, month: number) {
+  return new Date(year, month, 1).getDay();
+}
+
+function VDatePicker({
+  name,
+  label,
+  defaultValue,
+  error,
+}: {
+  name: string;
+  label: string;
+  defaultValue?: string;
+  error?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState(defaultValue ?? "");
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Parse initial date or default to a reasonable starting point
+  const parsed = value ? new Date(value) : null;
+  const [viewYear, setViewYear] = useState(parsed ? parsed.getFullYear() : 1990);
+  const [viewMonth, setViewMonth] = useState(parsed ? parsed.getMonth() : 0);
+
+  const selectedDay = parsed && parsed.getFullYear() === viewYear && parsed.getMonth() === viewMonth
+    ? parsed.getDate() : null;
+
+  const daysInMonth = getDaysInMonth(viewYear, viewMonth);
+  const firstDay = getFirstDayOfMonth(viewYear, viewMonth);
+
+  const today = new Date();
+  const minYear = today.getFullYear() - 100;
+  const maxYear = today.getFullYear() - 16; // must be at least 16
+  const years = Array.from({ length: maxYear - minYear + 1 }, (_, i) => maxYear - i);
+
+  const handleSelect = useCallback((day: number) => {
+    const m = String(viewMonth + 1).padStart(2, "0");
+    const d = String(day).padStart(2, "0");
+    setValue(`${viewYear}-${m}-${d}`);
+    setOpen(false);
+  }, [viewYear, viewMonth]);
+
+  const formatDisplay = (val: string) => {
+    if (!val) return "";
+    const p = new Date(val + "T00:00:00");
+    if (isNaN(p.getTime())) return val;
+    return `${MONTHS_FULL[p.getMonth()]} ${p.getDate()}, ${p.getFullYear()}`;
+  };
+
+  // Close on outside click
+  const handleBlur = useCallback((e: React.FocusEvent) => {
+    if (containerRef.current && !containerRef.current.contains(e.relatedTarget as Node)) {
+      setOpen(false);
+    }
+  }, []);
+
+  return (
+    <div className="relative mb-3.5" ref={containerRef} onBlur={handleBlur}>
+      <label className="mb-1 block text-xs font-medium text-text-dim">{label}</label>
+      <input type="hidden" name={name} value={value} />
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={cn(
+          "flex w-full items-center justify-between rounded-lg border bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-left text-[13px] outline-none",
+          error ? "border-[rgba(248,113,113,0.5)]" : "border-border-default",
+          value ? "text-text-primary" : "text-text-dim"
+        )}
+      >
+        <span>{value ? formatDisplay(value) : "Select date..."}</span>
+        <CalendarIcon size={14} className="text-text-dim" />
+      </button>
+      {error && <p className="mt-1 text-[11px] text-red-light">{error}</p>}
+
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-1 w-[280px] rounded-xl border border-border-default bg-[#161b22] p-3 shadow-xl">
+          {/* Month & Year dropdowns */}
+          <div className="mb-2.5 flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                if (viewMonth === 0) { setViewMonth(11); setViewYear(viewYear - 1); }
+                else setViewMonth(viewMonth - 1);
+              }}
+              className="rounded p-1 text-text-muted hover:bg-[rgba(255,255,255,0.08)] hover:text-text-primary"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <select
+              value={viewMonth}
+              onChange={(e) => setViewMonth(Number(e.target.value))}
+              className="flex-1 appearance-none rounded border border-border-default bg-[rgba(255,255,255,0.04)] px-2 py-1 text-center text-xs font-semibold text-text-primary outline-none"
+            >
+              {MONTHS_FULL.map((m, i) => (
+                <option key={m} value={i}>{m}</option>
+              ))}
+            </select>
+            <select
+              value={viewYear}
+              onChange={(e) => setViewYear(Number(e.target.value))}
+              className="w-[72px] appearance-none rounded border border-border-default bg-[rgba(255,255,255,0.04)] px-2 py-1 text-center text-xs font-semibold text-text-primary outline-none"
+            >
+              {years.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => {
+                if (viewMonth === 11) { setViewMonth(0); setViewYear(viewYear + 1); }
+                else setViewMonth(viewMonth + 1);
+              }}
+              className="rounded p-1 text-text-muted hover:bg-[rgba(255,255,255,0.08)] hover:text-text-primary"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+
+          {/* Day headers */}
+          <div className="mb-1 grid grid-cols-7 gap-0">
+            {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => (
+              <div key={d} className="py-1 text-center text-[10px] font-semibold text-text-dim">{d}</div>
+            ))}
+          </div>
+
+          {/* Day grid */}
+          <div className="grid grid-cols-7 gap-0">
+            {Array.from({ length: firstDay }).map((_, i) => (
+              <div key={`empty-${i}`} />
+            ))}
+            {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
+              const isSelected = day === selectedDay;
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => handleSelect(day)}
+                  className={cn(
+                    "mx-auto flex h-8 w-8 items-center justify-center rounded-full text-xs transition-colors",
+                    isSelected
+                      ? "bg-emerald-dark font-semibold text-white"
+                      : "text-text-primary hover:bg-[rgba(255,255,255,0.1)]"
+                  )}
+                >
+                  {day}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
