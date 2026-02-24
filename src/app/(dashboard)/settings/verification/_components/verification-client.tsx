@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Clock, Check, ChevronLeft, ChevronRight, CheckCircle, Calendar as CalendarIcon } from "lucide-react";
+import { Clock, Check, ChevronLeft, ChevronRight, CheckCircle, Calendar as CalendarIcon, FileText, User, Building2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SectionLabel } from "@/components/ui/section-label";
 import { cn } from "@/lib/utils";
@@ -30,7 +30,6 @@ function validateRegistrationNumber(regType: string, value: string): string | nu
 
   switch (regType) {
     case "bn": {
-      // Canadian BN: 9 digits, optionally followed by 2-letter program ID and 4-digit account number
       const bnClean = trimmed.replace(/[\s-]/g, "");
       if (!/^\d{9}(\w{2}\d{4})?$/.test(bnClean)) {
         return "Business Number must be 9 digits (e.g., 123456789).";
@@ -45,7 +44,6 @@ function validateRegistrationNumber(regType: string, value: string): string | nu
       return null;
     }
     case "ein": {
-      // EIN format: XX-XXXXXXX
       const einClean = trimmed.replace(/[\s]/g, "");
       if (!/^\d{2}-?\d{7}$/.test(einClean)) {
         return "EIN must be in XX-XXXXXXX format (e.g., 12-3456789).";
@@ -94,16 +92,119 @@ function formatDate(iso: string | null): string {
   });
 }
 
+function formatDob(val: string | null): string {
+  if (!val) return "—";
+  const MONTHS_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const p = new Date(val + "T00:00:00");
+  if (isNaN(p.getTime())) return val;
+  return `${MONTHS_FULL[p.getMonth()]} ${p.getDate()}, ${p.getFullYear()}`;
+}
+
+function getRegTypeLabel(regType: string | null, country: string | null): string {
+  if (!regType) return "—";
+  const options = country === "CA" ? CA_REG_TYPES : US_REG_TYPES;
+  return options.find((o) => o.value === regType)?.label ?? regType;
+}
+
 function inferRegType(verification: Verification): string {
   if (!verification) return "";
   if (verification.registration_type) return verification.registration_type;
-  // Infer from existing data for backwards compatibility
   const country = verification.country;
   if (country === "CA") {
     return verification.tax_id ? "bn" : verification.state_registration_number ? "provincial" : "";
   }
   return verification.tax_id ? "ein" : verification.state_registration_number ? "state" : "";
 }
+
+// ─── Read-only summary shown after submission ───
+
+function VerificationSummary({
+  verification,
+  onResubmit,
+}: {
+  verification: NonNullable<Verification>;
+  onResubmit?: () => void;
+}) {
+  const isVerified = verification.status === "verified";
+  const regType = inferRegType(verification);
+  const regId = regType === "bn" || regType === "ein"
+    ? verification.tax_id
+    : verification.state_registration_number;
+
+  return (
+    <div className="space-y-4">
+      {/* Business Details */}
+      <div className="rounded-xl border border-border-default bg-surface-card p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <Building2 size={14} className="text-text-dim" />
+          <SectionLabel className="mb-0">Business Details</SectionLabel>
+        </div>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+          <SummaryRow label="Legal Business Name" value={verification.legal_business_name} />
+          {verification.dba_name && <SummaryRow label="DBA / Trade Name" value={verification.dba_name} />}
+          <SummaryRow label="Country" value={verification.country === "CA" ? "Canada" : "United States"} />
+          <SummaryRow label="Business Type" value={verification.business_type} />
+          <SummaryRow label="Industry" value={verification.industry} />
+          <SummaryRow label="Registration Type" value={getRegTypeLabel(regType, verification.country)} />
+          <SummaryRow label={regType === "bn" || regType === "ein" ? "Tax ID / BN" : "Registration Number"} value={regId} />
+          {verification.province_or_state && (
+            <SummaryRow label={verification.country === "CA" ? "Province" : "State"} value={verification.province_or_state} />
+          )}
+          <SummaryRow label="Business Address" value={verification.business_address} />
+        </div>
+      </div>
+
+      {/* Representative Details */}
+      <div className="rounded-xl border border-border-default bg-surface-card p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <User size={14} className="text-text-dim" />
+          <SectionLabel className="mb-0">Authorized Representative</SectionLabel>
+        </div>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+          <SummaryRow label="Full Name" value={verification.rep_full_name} />
+          <SummaryRow label="Job Title" value={verification.rep_job_title} />
+          <SummaryRow label="Email" value={verification.rep_email} />
+          <SummaryRow label="Phone" value={verification.rep_phone} />
+          <SummaryRow label="Date of Birth" value={formatDob(verification.rep_dob)} />
+        </div>
+      </div>
+
+      {/* Cancel & Resubmit (only for in_progress, not verified) */}
+      {!isVerified && onResubmit && (
+        <div className="rounded-xl border border-border-default bg-surface-card p-5">
+          <div className="flex items-start gap-3">
+            <AlertCircle size={16} className="mt-0.5 shrink-0 text-text-dim" />
+            <div className="flex-1">
+              <p className="text-[13px] text-text-primary">Need to make changes?</p>
+              <p className="mt-0.5 text-[11px] text-text-dim">
+                Cancel your current submission and resubmit with updated information.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={onResubmit}
+              className="shrink-0 border border-border-default bg-[rgba(255,255,255,0.03)] text-xs text-text-muted hover:bg-[rgba(255,255,255,0.06)]"
+            >
+              Cancel &amp; Resubmit
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.15em] text-text-dim">{label}</div>
+      <div className="mt-0.5 text-[13px] text-text-primary">{value || "—"}</div>
+    </div>
+  );
+}
+
+// ─── Main component ───
 
 export function VerificationClient({ verification }: { verification: Verification }) {
   const router = useRouter();
@@ -116,9 +217,11 @@ export function VerificationClient({ verification }: { verification: Verificatio
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [editing, setEditing] = useState(false);
 
   const isSubmitted = verification?.status === "in_progress" || verification?.status === "verified";
   const isVerified = verification?.status === "verified";
+  const showForm = !isSubmitted || editing;
 
   const regTypeOptions = country === "CA" ? CA_REG_TYPES : US_REG_TYPES;
 
@@ -133,7 +236,6 @@ export function VerificationClient({ verification }: { verification: Verificatio
     const form = new FormData(formRef.current);
     const errors: Record<string, string> = {};
 
-    // Validate all step 1 required fields
     const legalName = (form.get("legal_business_name") as string)?.trim();
     if (!legalName) errors.legal_business_name = "Legal business name is required.";
 
@@ -166,7 +268,6 @@ export function VerificationClient({ verification }: { verification: Verificatio
     if (!formRef.current) return;
     const form = new FormData(formRef.current);
 
-    // Validate step 2 required fields
     const errors: Record<string, string> = {};
     const repName = (form.get("rep_full_name") as string)?.trim();
     const repEmail = (form.get("rep_email") as string)?.trim();
@@ -211,11 +312,11 @@ export function VerificationClient({ verification }: { verification: Verificatio
     if (err) {
       setError(err);
     } else {
+      setEditing(false);
       router.refresh();
     }
   };
 
-  // Determine which registration field to show based on regType
   const regFieldLabel =
     regType === "bn" ? "Business Number (BN)"
     : regType === "provincial" ? "Provincial Registration Number"
@@ -237,7 +338,6 @@ export function VerificationClient({ verification }: { verification: Verificatio
       ? (verification?.tax_id ?? "")
       : (verification?.state_registration_number ?? "");
 
-  // Whether to show province/state selector (always for provincial/state reg, optional otherwise)
   const showProvinceState = regType === "provincial" || regType === "state";
 
   return (
@@ -253,7 +353,7 @@ export function VerificationClient({ verification }: { verification: Verificatio
             </div>
           </div>
         </div>
-      ) : isSubmitted ? (
+      ) : isSubmitted && !editing ? (
         <div className="mb-4 flex items-center gap-2.5 rounded-[10px] border border-[rgba(251,191,36,0.15)] bg-[rgba(251,191,36,0.06)] px-[18px] py-3.5">
           <Clock size={16} className="shrink-0 text-amber-light" />
           <div>
@@ -263,9 +363,9 @@ export function VerificationClient({ verification }: { verification: Verificatio
             </div>
           </div>
         </div>
-      ) : (
+      ) : !isSubmitted ? (
         <div className="mb-4 flex items-center gap-2.5 rounded-[10px] border border-border-default bg-surface-card px-[18px] py-3.5">
-          <Clock size={16} className="shrink-0 text-text-dim" />
+          <FileText size={16} className="shrink-0 text-text-dim" />
           <div>
             <div className="text-[13px] font-semibold text-text-primary">Not Yet Verified</div>
             <div className="text-[11px] text-text-dim">
@@ -273,7 +373,7 @@ export function VerificationClient({ verification }: { verification: Verificatio
             </div>
           </div>
         </div>
-      )}
+      ) : null}
 
       {error && (
         <div className="mb-4 rounded-lg border border-[rgba(248,113,113,0.3)] bg-[rgba(248,113,113,0.08)] px-3 py-2 text-xs text-red-light">
@@ -281,204 +381,231 @@ export function VerificationClient({ verification }: { verification: Verificatio
         </div>
       )}
 
-      {/* Step indicator */}
-      <div className="mb-5 flex items-center gap-1">
-        {["Business Details", "Authorized Representative"].map((s, i) => (
-          <div key={s} className="flex items-center gap-1">
-            <div
-              className={cn(
-                "flex items-center gap-1.5 rounded-lg px-3 py-[5px] text-xs font-semibold",
-                step > i + 1
-                  ? "bg-emerald-bg text-emerald-light"
-                  : step === i + 1
-                    ? "bg-[rgba(255,255,255,0.1)] text-text-primary"
-                    : "bg-[rgba(255,255,255,0.03)] text-text-dim"
-              )}
-            >
-              {step > i + 1 ? <Check size={12} /> : <span>{i + 1}</span>}
-              <span>{s}</span>
-            </div>
-            {i < 1 && <div className="h-px w-4 bg-border-default" />}
+      {/* Summary view (submitted or verified, not editing) */}
+      {isSubmitted && !editing && verification && (
+        <VerificationSummary
+          verification={verification}
+          onResubmit={!isVerified ? () => { setEditing(true); setStep(1); } : undefined}
+        />
+      )}
+
+      {/* Form view */}
+      {showForm && (
+        <>
+          {/* Step indicator */}
+          <div className="mb-5 flex items-center gap-1">
+            {["Business Details", "Authorized Representative"].map((s, i) => (
+              <div key={s} className="flex items-center gap-1">
+                <div
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-lg px-3 py-[5px] text-xs font-semibold",
+                    step > i + 1
+                      ? "bg-emerald-bg text-emerald-light"
+                      : step === i + 1
+                        ? "bg-[rgba(255,255,255,0.1)] text-text-primary"
+                        : "bg-[rgba(255,255,255,0.03)] text-text-dim"
+                  )}
+                >
+                  {step > i + 1 ? <Check size={12} /> : <span>{i + 1}</span>}
+                  <span>{s}</span>
+                </div>
+                {i < 1 && <div className="h-px w-4 bg-border-default" />}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
 
-      <form ref={formRef}>
-        {/* Step 1: Business Details — always rendered, hidden when not active */}
-        <div className={step === 1 ? "" : "hidden"}>
-          <div className="rounded-xl border border-border-default bg-surface-card p-6">
-            <SectionLabel>Business Details</SectionLabel>
+          <form ref={formRef}>
+            {/* Step 1 */}
+            <div className={step === 1 ? "" : "hidden"}>
+              <div className="rounded-xl border border-border-default bg-surface-card p-6">
+                <SectionLabel>Business Details</SectionLabel>
 
-            {/* Country selector */}
-            <div className="mb-[18px]">
-              <label className="mb-1.5 block text-xs font-medium text-text-dim">Country</label>
-              <div className="flex gap-1.5">
-                {([["CA", "Canada"], ["US", "United States"]] as const).map(([code, label]) => (
-                  <button
-                    key={code}
+                <div className="mb-[18px]">
+                  <label className="mb-1.5 block text-xs font-medium text-text-dim">Country</label>
+                  <div className="flex gap-1.5">
+                    {([["CA", "Canada"], ["US", "United States"]] as const).map(([code, label]) => (
+                      <button
+                        key={code}
+                        type="button"
+                        onClick={() => handleCountryChange(code)}
+                        className={cn(
+                          "flex-1 rounded-lg border-[1.5px] px-3.5 py-2.5 text-[13px] font-semibold transition-all",
+                          country === code
+                            ? "border-[rgba(52,211,153,0.4)] bg-emerald-bg text-emerald-light"
+                            : "border-border-default bg-[rgba(255,255,255,0.02)] text-text-muted"
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <VField
+                  name="legal_business_name"
+                  label="Legal Business Name (as registered)"
+                  defaultValue={verification?.legal_business_name ?? ""}
+                  error={fieldErrors.legal_business_name}
+                />
+                <VField name="dba_name" label="DBA / Trade Name (if different)" defaultValue={verification?.dba_name ?? ""} />
+                <div className="grid grid-cols-2 gap-x-3">
+                  <VSelect
+                    name="business_type"
+                    label="Business Type"
+                    defaultValue={verification?.business_type ?? (country === "CA" ? "Corporation" : "LLC")}
+                    options={country === "CA" ? caBusinessTypes : usBusinessTypes}
+                  />
+                  <VSelect name="industry" label="Industry" defaultValue={verification?.industry ?? "Financial Services"} options={industries} />
+                </div>
+
+                <div className="mb-3.5">
+                  <label className="mb-1 block text-xs font-medium text-text-dim">Registration Type</label>
+                  <select
+                    value={regType}
+                    onChange={(e) => { setRegType(e.target.value); setFieldErrors({}); }}
+                    className="w-full appearance-none rounded-lg border border-border-default bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-[13px] text-text-primary outline-none"
+                  >
+                    <option value="" disabled>Select registration type...</option>
+                    {regTypeOptions.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                  {fieldErrors.registration_type && (
+                    <p className="mt-1 text-[11px] text-red-light">{fieldErrors.registration_type}</p>
+                  )}
+                </div>
+
+                {regType && (
+                  <div className={showProvinceState ? "grid grid-cols-2 gap-x-3" : ""}>
+                    <VField
+                      key={`${regType}-reg-field`}
+                      name={regFieldName}
+                      label={regFieldLabel}
+                      defaultValue={regFieldDefault}
+                      placeholder={regFieldPlaceholder}
+                      error={fieldErrors.tax_id || fieldErrors.state_registration_number}
+                    />
+                    {showProvinceState && (
+                      <VSelect
+                        name="province_or_state"
+                        label={country === "CA" ? "Province" : "State"}
+                        defaultValue={verification?.province_or_state ?? (country === "CA" ? "Ontario" : "California")}
+                        options={country === "CA" ? provinces : usStates}
+                      />
+                    )}
+                  </div>
+                )}
+
+                <VField
+                  name="business_address"
+                  label="Business Address"
+                  defaultValue={verification?.business_address ?? ""}
+                  error={fieldErrors.business_address}
+                />
+
+                <div className="mt-2 flex gap-2.5">
+                  {editing && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => { setEditing(false); setStep(1); setFieldErrors({}); }}
+                      className="flex-1 justify-center border border-border-default bg-[rgba(255,255,255,0.03)] py-2.5 text-text-muted hover:bg-[rgba(255,255,255,0.06)]"
+                    >
+                      Cancel
+                    </Button>
+                  )}
+                  <Button
                     type="button"
-                    onClick={() => handleCountryChange(code)}
+                    onClick={handleContinue}
                     className={cn(
-                      "flex-1 rounded-lg border-[1.5px] px-3.5 py-2.5 text-[13px] font-semibold transition-all",
-                      country === code
-                        ? "border-[rgba(52,211,153,0.4)] bg-emerald-bg text-emerald-light"
-                        : "border-border-default bg-[rgba(255,255,255,0.02)] text-text-muted"
+                      "justify-center bg-emerald-dark py-2.5 text-white hover:bg-emerald-dark/90",
+                      editing ? "flex-1" : "w-full"
                     )}
                   >
-                    {label}
+                    Continue to Representative
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Step 2 */}
+            <div className={step === 2 ? "" : "hidden"}>
+              <div className="rounded-xl border border-border-default bg-surface-card p-6">
+                <div className="mb-4 flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => { setStep(1); setFieldErrors({}); }}
+                    className="flex rounded-lg bg-[rgba(255,255,255,0.05)] p-1.5 text-text-muted hover:text-text-primary"
+                  >
+                    <ChevronLeft size={16} />
                   </button>
-                ))}
-              </div>
-            </div>
-
-            <VField
-              name="legal_business_name"
-              label="Legal Business Name (as registered)"
-              defaultValue={verification?.legal_business_name ?? ""}
-              error={fieldErrors.legal_business_name}
-            />
-            <VField name="dba_name" label="DBA / Trade Name (if different)" defaultValue={verification?.dba_name ?? ""} />
-            <div className="grid grid-cols-2 gap-x-3">
-              <VSelect
-                name="business_type"
-                label="Business Type"
-                defaultValue={verification?.business_type ?? (country === "CA" ? "Corporation" : "LLC")}
-                options={country === "CA" ? caBusinessTypes : usBusinessTypes}
-              />
-              <VSelect name="industry" label="Industry" defaultValue={verification?.industry ?? "Financial Services"} options={industries} />
-            </div>
-
-            {/* Registration Type */}
-            <div className="mb-3.5">
-              <label className="mb-1 block text-xs font-medium text-text-dim">Registration Type</label>
-              <select
-                value={regType}
-                onChange={(e) => { setRegType(e.target.value); setFieldErrors({}); }}
-                className="w-full appearance-none rounded-lg border border-border-default bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-[13px] text-text-primary outline-none"
-              >
-                <option value="" disabled>Select registration type...</option>
-                {regTypeOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-              {fieldErrors.registration_type && (
-                <p className="mt-1 text-[11px] text-red-light">{fieldErrors.registration_type}</p>
-              )}
-            </div>
-
-            {/* Dynamic registration fields */}
-            {regType && (
-              <div className={showProvinceState ? "grid grid-cols-2 gap-x-3" : ""}>
-                <VField
-                  key={`${regType}-reg-field`}
-                  name={regFieldName}
-                  label={regFieldLabel}
-                  defaultValue={regFieldDefault}
-                  placeholder={regFieldPlaceholder}
-                  error={fieldErrors.tax_id || fieldErrors.state_registration_number}
-                />
-                {showProvinceState && (
-                  <VSelect
-                    name="province_or_state"
-                    label={country === "CA" ? "Province" : "State"}
-                    defaultValue={verification?.province_or_state ?? (country === "CA" ? "Ontario" : "California")}
-                    options={country === "CA" ? provinces : usStates}
+                  <SectionLabel className="mb-0">Authorized Representative</SectionLabel>
+                </div>
+                <p className="mb-4 text-xs text-text-dim">
+                  This person will be the primary point of contact for verification and compliance matters.
+                </p>
+                <div className="grid grid-cols-2 gap-x-3">
+                  <VField
+                    name="rep_full_name"
+                    label="Full Legal Name"
+                    defaultValue={verification?.rep_full_name ?? ""}
+                    error={fieldErrors.rep_full_name}
                   />
-                )}
+                  <VField
+                    name="rep_job_title"
+                    label="Job Title"
+                    defaultValue={verification?.rep_job_title ?? ""}
+                    error={fieldErrors.rep_job_title}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-x-3">
+                  <VField
+                    name="rep_email"
+                    label="Email Address"
+                    defaultValue={verification?.rep_email ?? ""}
+                    error={fieldErrors.rep_email}
+                  />
+                  <VField
+                    name="rep_phone"
+                    label="Phone Number"
+                    defaultValue={verification?.rep_phone ?? ""}
+                    error={fieldErrors.rep_phone}
+                  />
+                </div>
+                <VDatePicker
+                  name="rep_dob"
+                  label="Date of Birth"
+                  defaultValue={verification?.rep_dob ?? ""}
+                  error={fieldErrors.rep_dob}
+                />
+                <div className="mt-2 flex gap-2.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => { setStep(1); setFieldErrors({}); }}
+                    className="flex-1 justify-center border border-border-default bg-[rgba(255,255,255,0.03)] py-2.5 text-text-muted hover:bg-[rgba(255,255,255,0.06)]"
+                  >
+                    Back
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={submitting}
+                    onClick={handleSubmit}
+                    className="flex-1 justify-center bg-emerald-dark py-2.5 text-white hover:bg-emerald-dark/90"
+                  >
+                    {submitting ? "Submitting..." : editing ? "Update & Resubmit" : "Submit Verification"}
+                  </Button>
+                </div>
               </div>
-            )}
-
-            <VField
-              name="business_address"
-              label="Business Address"
-              defaultValue={verification?.business_address ?? ""}
-              error={fieldErrors.business_address}
-            />
-
-            <Button
-              type="button"
-              onClick={handleContinue}
-              className="mt-2 w-full justify-center bg-emerald-dark py-2.5 text-white hover:bg-emerald-dark/90"
-            >
-              Continue to Representative
-            </Button>
-          </div>
-        </div>
-
-        {/* Step 2: Authorized Representative — always rendered, hidden when not active */}
-        <div className={step === 2 ? "" : "hidden"}>
-          <div className="rounded-xl border border-border-default bg-surface-card p-6">
-            <div className="mb-4 flex items-center gap-2.5">
-              <button
-                type="button"
-                onClick={() => { setStep(1); setFieldErrors({}); }}
-                className="flex rounded-lg bg-[rgba(255,255,255,0.05)] p-1.5 text-text-muted hover:text-text-primary"
-              >
-                <ChevronLeft size={16} />
-              </button>
-              <SectionLabel className="mb-0">Authorized Representative</SectionLabel>
             </div>
-            <p className="mb-4 text-xs text-text-dim">
-              This person will be the primary point of contact for verification and compliance matters.
-            </p>
-            <div className="grid grid-cols-2 gap-x-3">
-              <VField
-                name="rep_full_name"
-                label="Full Legal Name"
-                defaultValue={verification?.rep_full_name ?? ""}
-                error={fieldErrors.rep_full_name}
-              />
-              <VField
-                name="rep_job_title"
-                label="Job Title"
-                defaultValue={verification?.rep_job_title ?? ""}
-                error={fieldErrors.rep_job_title}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-x-3">
-              <VField
-                name="rep_email"
-                label="Email Address"
-                defaultValue={verification?.rep_email ?? ""}
-                error={fieldErrors.rep_email}
-              />
-              <VField
-                name="rep_phone"
-                label="Phone Number"
-                defaultValue={verification?.rep_phone ?? ""}
-                error={fieldErrors.rep_phone}
-              />
-            </div>
-            <VDatePicker
-              name="rep_dob"
-              label="Date of Birth"
-              defaultValue={verification?.rep_dob ?? ""}
-              error={fieldErrors.rep_dob}
-            />
-            <div className="mt-2 flex gap-2.5">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => { setStep(1); setFieldErrors({}); }}
-                className="flex-1 justify-center border border-border-default bg-[rgba(255,255,255,0.03)] py-2.5 text-text-muted hover:bg-[rgba(255,255,255,0.06)]"
-              >
-                Back
-              </Button>
-              <Button
-                type="button"
-                disabled={submitting}
-                onClick={handleSubmit}
-                className="flex-1 justify-center bg-emerald-dark py-2.5 text-white hover:bg-emerald-dark/90"
-              >
-                {submitting ? "Submitting..." : isSubmitted ? "Update & Resubmit" : "Submit Verification"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </form>
+          </form>
+        </>
+      )}
     </div>
   );
 }
+
+// ─── Form primitives ───
 
 function VField({
   name,
@@ -537,7 +664,6 @@ function VSelect({
   );
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTHS_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 function getDaysInMonth(year: number, month: number) {
@@ -563,12 +689,11 @@ function VDatePicker({
   const [value, setValue] = useState(defaultValue ?? "");
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Parse initial date or default to a reasonable starting point
-  const parsed = value ? new Date(value) : null;
-  const [viewYear, setViewYear] = useState(parsed ? parsed.getFullYear() : 1990);
-  const [viewMonth, setViewMonth] = useState(parsed ? parsed.getMonth() : 0);
+  const parsed = value ? new Date(value + "T00:00:00") : null;
+  const [viewYear, setViewYear] = useState(parsed && !isNaN(parsed.getTime()) ? parsed.getFullYear() : 1990);
+  const [viewMonth, setViewMonth] = useState(parsed && !isNaN(parsed.getTime()) ? parsed.getMonth() : 0);
 
-  const selectedDay = parsed && parsed.getFullYear() === viewYear && parsed.getMonth() === viewMonth
+  const selectedDay = parsed && !isNaN(parsed.getTime()) && parsed.getFullYear() === viewYear && parsed.getMonth() === viewMonth
     ? parsed.getDate() : null;
 
   const daysInMonth = getDaysInMonth(viewYear, viewMonth);
@@ -576,7 +701,7 @@ function VDatePicker({
 
   const today = new Date();
   const minYear = today.getFullYear() - 100;
-  const maxYear = today.getFullYear() - 16; // must be at least 16
+  const maxYear = today.getFullYear() - 16;
   const years = Array.from({ length: maxYear - minYear + 1 }, (_, i) => maxYear - i);
 
   const handleSelect = useCallback((day: number) => {
@@ -593,7 +718,6 @@ function VDatePicker({
     return `${MONTHS_FULL[p.getMonth()]} ${p.getDate()}, ${p.getFullYear()}`;
   };
 
-  // Close on outside click
   const handleBlur = useCallback((e: React.FocusEvent) => {
     if (containerRef.current && !containerRef.current.contains(e.relatedTarget as Node)) {
       setOpen(false);
@@ -620,7 +744,6 @@ function VDatePicker({
 
       {open && (
         <div className="absolute left-0 top-full z-50 mt-1 w-[280px] rounded-xl border border-border-default bg-[#161b22] p-3 shadow-xl">
-          {/* Month & Year dropdowns */}
           <div className="mb-2.5 flex items-center gap-1.5">
             <button
               type="button"
@@ -662,14 +785,12 @@ function VDatePicker({
             </button>
           </div>
 
-          {/* Day headers */}
           <div className="mb-1 grid grid-cols-7 gap-0">
             {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => (
               <div key={d} className="py-1 text-center text-[10px] font-semibold text-text-dim">{d}</div>
             ))}
           </div>
 
-          {/* Day grid */}
           <div className="grid grid-cols-7 gap-0">
             {Array.from({ length: firstDay }).map((_, i) => (
               <div key={`empty-${i}`} />
