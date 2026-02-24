@@ -1,8 +1,20 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { corsHeaders } from "../_shared/cors.ts";
-import { createUserClient } from "../_shared/supabase-client.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { jsonResponse, errorResponse } from "../_shared/response.ts";
-import { getAuthContext } from "../_shared/auth.ts";
+
+function getUserIdFromJwt(authHeader: string): string | null {
+  try {
+    const token = authHeader.replace("Bearer ", "");
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    // Decode the payload (base64url)
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return payload.sub || null;
+  } catch {
+    return null;
+  }
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -10,12 +22,40 @@ serve(async (req) => {
   }
 
   try {
-    const { userId, orgId } = await getAuthContext(req);
-    const supabase = createUserClient(req);
-
     if (req.method !== "POST") {
       return errorResponse("Method not allowed", 405);
     }
+
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return errorResponse("Missing Authorization header", 401);
+    }
+
+    // Decode user ID from the JWT (already validated by Supabase gateway)
+    const userId = getUserIdFromJwt(authHeader);
+    if (!userId) {
+      return errorResponse("Invalid token", 401);
+    }
+
+    // Use service role client for DB operations
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    // Look up user's org
+    const { data: profile, error: profileError } = await supabase
+      .from("users")
+      .select("org_id")
+      .eq("id", userId)
+      .single();
+
+    if (profileError || !profile) {
+      console.error("Profile lookup failed:", profileError?.message);
+      return errorResponse("User profile not found", 401);
+    }
+
+    const orgId = profile.org_id;
 
     const body = await req.json();
     const {
@@ -26,7 +66,6 @@ serve(async (req) => {
       business_address,
       province_or_state,
       country,
-      website_url,
       tax_id,
       state_registration_number,
       registration_type,
@@ -37,7 +76,6 @@ serve(async (req) => {
       rep_dob,
     } = body;
 
-    // Validate required field
     if (
       !legal_business_name ||
       typeof legal_business_name !== "string" ||
@@ -62,7 +100,6 @@ serve(async (req) => {
           business_address: business_address ?? null,
           province_or_state: province_or_state ?? null,
           country: country ?? null,
-          website_url: website_url ?? null,
           tax_id: tax_id ?? null,
           state_registration_number: state_registration_number ?? null,
           registration_type: registration_type ?? null,
@@ -84,9 +121,6 @@ serve(async (req) => {
 
     return jsonResponse({ id: data.id, status: data.status });
   } catch (error) {
-    if (error.message === "Unauthorized") {
-      return errorResponse("Unauthorized", 401);
-    }
     console.error("submit-verification error:", error);
     return errorResponse(error.message, 500);
   }
