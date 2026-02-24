@@ -11,7 +11,13 @@ export default function SignupPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+
   async function handleSubmit(formData: FormData) {
+    if (!agreedToTerms) {
+      setError("You must agree to the Terms of Service and Privacy Policy.");
+      return;
+    }
     setError(null);
     setLoading(true);
     const result = await signUp(formData);
@@ -101,6 +107,36 @@ export default function SignupPage() {
             autoComplete="new-password"
             className="border-border-default bg-surface-input text-text-primary placeholder:text-text-dim"
           />
+        </div>
+
+        <div className="flex items-start gap-2">
+          <input
+            type="checkbox"
+            id="terms"
+            checked={agreedToTerms}
+            onChange={(e) => setAgreedToTerms(e.target.checked)}
+            className="mt-1 h-4 w-4 rounded border-border-default bg-surface-input accent-emerald-dark"
+          />
+          <label htmlFor="terms" className="text-sm text-text-muted">
+            I agree to the{" "}
+            <a
+              href="/terms"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-emerald-light hover:underline"
+            >
+              Terms of Service
+            </a>{" "}
+            and{" "}
+            <a
+              href="/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-emerald-light hover:underline"
+            >
+              Privacy Policy
+            </a>
+          </label>
         </div>
 
         {error && (
