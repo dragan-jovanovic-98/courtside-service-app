@@ -9,10 +9,60 @@ import { cn } from "@/lib/utils";
 import { callEdgeFunction } from "@/lib/supabase/edge-functions";
 
 const provinces = ["Alberta", "British Columbia", "Manitoba", "New Brunswick", "Newfoundland", "Nova Scotia", "Ontario", "PEI", "Quebec", "Saskatchewan"];
-const usStates = ["California", "Florida", "Illinois", "New York", "Texas", "Washington", "Other"];
+const usStates = ["Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming"];
 const caBusinessTypes = ["Corporation", "Sole Proprietorship", "Partnership", "Cooperative", "Non-Profit"];
 const usBusinessTypes = ["LLC", "Corporation (C-Corp)", "Corporation (S-Corp)", "Sole Proprietorship", "Partnership", "Non-Profit"];
 const industries = ["Financial Services", "Insurance", "Real Estate", "Mortgage Lending", "Investment Advisory", "Other"];
+
+const CA_REG_TYPES = [
+  { value: "bn", label: "Business Number (BN)" },
+  { value: "provincial", label: "Provincial Registration" },
+];
+
+const US_REG_TYPES = [
+  { value: "ein", label: "EIN / Tax ID Number" },
+  { value: "state", label: "State Registration Number" },
+];
+
+function validateRegistrationNumber(regType: string, value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return "This field is required.";
+
+  switch (regType) {
+    case "bn": {
+      // Canadian BN: 9 digits, optionally followed by 2-letter program ID and 4-digit account number
+      const bnClean = trimmed.replace(/[\s-]/g, "");
+      if (!/^\d{9}(\w{2}\d{4})?$/.test(bnClean)) {
+        return "Business Number must be 9 digits (e.g., 123456789).";
+      }
+      return null;
+    }
+    case "provincial": {
+      const provClean = trimmed.replace(/[\s-]/g, "");
+      if (provClean.length < 4 || !/^[A-Za-z0-9]+$/.test(provClean)) {
+        return "Enter a valid provincial registration number (at least 4 alphanumeric characters).";
+      }
+      return null;
+    }
+    case "ein": {
+      // EIN format: XX-XXXXXXX
+      const einClean = trimmed.replace(/[\s]/g, "");
+      if (!/^\d{2}-?\d{7}$/.test(einClean)) {
+        return "EIN must be in XX-XXXXXXX format (e.g., 12-3456789).";
+      }
+      return null;
+    }
+    case "state": {
+      const stateClean = trimmed.replace(/[\s-]/g, "");
+      if (stateClean.length < 4 || !/^[A-Za-z0-9]+$/.test(stateClean)) {
+        return "Enter a valid state registration number (at least 4 alphanumeric characters).";
+      }
+      return null;
+    }
+    default:
+      return null;
+  }
+}
 
 type Verification = {
   status: string;
@@ -33,6 +83,7 @@ type Verification = {
   rep_phone: string | null;
   rep_job_title: string | null;
   rep_dob: string | null;
+  registration_type: string | null;
 } | null;
 
 function formatDate(iso: string | null): string {
@@ -44,6 +95,17 @@ function formatDate(iso: string | null): string {
   });
 }
 
+function inferRegType(verification: Verification): string {
+  if (!verification) return "";
+  if (verification.registration_type) return verification.registration_type;
+  // Infer from existing data for backwards compatibility
+  const country = verification.country;
+  if (country === "CA") {
+    return verification.tax_id ? "bn" : verification.state_registration_number ? "provincial" : "";
+  }
+  return verification.tax_id ? "ein" : verification.state_registration_number ? "state" : "";
+}
+
 export function VerificationClient({ verification }: { verification: Verification }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -51,17 +113,76 @@ export function VerificationClient({ verification }: { verification: Verificatio
   const [country, setCountry] = useState<"CA" | "US">(
     (verification?.country as "CA" | "US") ?? "CA"
   );
+  const [regType, setRegType] = useState(inferRegType(verification));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const isSubmitted = verification?.status === "in_progress" || verification?.status === "verified";
   const isVerified = verification?.status === "verified";
 
+  const regTypeOptions = country === "CA" ? CA_REG_TYPES : US_REG_TYPES;
+
+  const handleCountryChange = (code: "CA" | "US") => {
+    setCountry(code);
+    setRegType("");
+    setFieldErrors({});
+  };
+
+  const handleContinue = () => {
+    if (!formRef.current) return;
+    const form = new FormData(formRef.current);
+    const legalName = (form.get("legal_business_name") as string)?.trim();
+    if (!legalName) {
+      setFieldErrors({ legal_business_name: "Legal business name is required." });
+      return;
+    }
+
+    // Validate registration number
+    if (regType) {
+      const regValue = regType === "bn" || regType === "ein"
+        ? (form.get("tax_id") as string)
+        : (form.get("state_registration_number") as string);
+      const regError = validateRegistrationNumber(regType, regValue || "");
+      if (regError) {
+        const fieldName = regType === "bn" || regType === "ein" ? "tax_id" : "state_registration_number";
+        setFieldErrors({ [fieldName]: regError });
+        return;
+      }
+    } else {
+      setFieldErrors({ registration_type: "Please select a registration type." });
+      return;
+    }
+
+    setFieldErrors({});
+    setStep(2);
+  };
+
   const handleSubmit = async () => {
     if (!formRef.current) return;
     const form = new FormData(formRef.current);
+
+    // Validate step 2 required fields
+    const repName = (form.get("rep_full_name") as string)?.trim();
+    const repEmail = (form.get("rep_email") as string)?.trim();
+    if (!repName || !repEmail) {
+      const errors: Record<string, string> = {};
+      if (!repName) errors.rep_full_name = "Full name is required.";
+      if (!repEmail) errors.rep_email = "Email is required.";
+      setFieldErrors(errors);
+      return;
+    }
+
+    // Re-validate step 1 fields (in case of edge cases)
+    const legalName = (form.get("legal_business_name") as string)?.trim();
+    if (!legalName) {
+      setError("Legal business name is required. Please go back and fill it in.");
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
+    setFieldErrors({});
 
     const { error: err } = await callEdgeFunction("submit-verification", {
       legal_business_name: form.get("legal_business_name") as string,
@@ -74,6 +195,7 @@ export function VerificationClient({ verification }: { verification: Verificatio
       website_url: form.get("website_url") as string,
       tax_id: form.get("tax_id") as string,
       state_registration_number: form.get("state_registration_number") as string,
+      registration_type: regType,
       rep_full_name: form.get("rep_full_name") as string,
       rep_email: form.get("rep_email") as string,
       rep_phone: form.get("rep_phone") as string,
@@ -88,6 +210,31 @@ export function VerificationClient({ verification }: { verification: Verificatio
       router.refresh();
     }
   };
+
+  // Determine which registration field to show based on regType
+  const regFieldLabel =
+    regType === "bn" ? "Business Number (BN)"
+    : regType === "provincial" ? "Provincial Registration Number"
+    : regType === "ein" ? "EIN / Tax ID Number"
+    : regType === "state" ? "State Registration Number"
+    : "";
+
+  const regFieldName = regType === "bn" || regType === "ein" ? "tax_id" : "state_registration_number";
+
+  const regFieldPlaceholder =
+    regType === "bn" ? "123456789"
+    : regType === "ein" ? "12-3456789"
+    : regType === "provincial" ? "e.g., BC-1234567"
+    : regType === "state" ? "e.g., S12345678"
+    : "";
+
+  const regFieldDefault =
+    regType === "bn" || regType === "ein"
+      ? (verification?.tax_id ?? "")
+      : (verification?.state_registration_number ?? "");
+
+  // Whether to show province/state selector (always for provincial/state reg, optional otherwise)
+  const showProvinceState = regType === "provincial" || regType === "state";
 
   return (
     <div className="max-w-[580px]">
@@ -153,8 +300,8 @@ export function VerificationClient({ verification }: { verification: Verificatio
       </div>
 
       <form ref={formRef}>
-        {/* Step 1: Business Details */}
-        {step === 1 && (
+        {/* Step 1: Business Details — always rendered, hidden when not active */}
+        <div className={step === 1 ? "" : "hidden"}>
           <div className="rounded-xl border border-border-default bg-surface-card p-6">
             <SectionLabel>Business Details</SectionLabel>
 
@@ -166,7 +313,7 @@ export function VerificationClient({ verification }: { verification: Verificatio
                   <button
                     key={code}
                     type="button"
-                    onClick={() => setCountry(code)}
+                    onClick={() => handleCountryChange(code)}
                     className={cn(
                       "flex-1 rounded-lg border-[1.5px] px-3.5 py-2.5 text-[13px] font-semibold transition-all",
                       country === code
@@ -180,57 +327,83 @@ export function VerificationClient({ verification }: { verification: Verificatio
               </div>
             </div>
 
-            <VField name="legal_business_name" label="Legal Business Name (as registered)" defaultValue={verification?.legal_business_name ?? ""} />
+            <VField
+              name="legal_business_name"
+              label="Legal Business Name (as registered)"
+              defaultValue={verification?.legal_business_name ?? ""}
+              error={fieldErrors.legal_business_name}
+            />
             <VField name="dba_name" label="DBA / Trade Name (if different)" defaultValue={verification?.dba_name ?? ""} />
             <div className="grid grid-cols-2 gap-x-3">
-              <VField
-                name="tax_id"
-                label={country === "CA" ? "Business Number (BN)" : "EIN / Tax ID Number"}
-                defaultValue={verification?.tax_id ?? ""}
-              />
               <VSelect
                 name="business_type"
                 label="Business Type"
                 defaultValue={verification?.business_type ?? (country === "CA" ? "Corporation" : "LLC")}
                 options={country === "CA" ? caBusinessTypes : usBusinessTypes}
               />
-            </div>
-            <div className="grid grid-cols-2 gap-x-3">
-              <VField
-                name="state_registration_number"
-                label={country === "CA" ? "Provincial Registration Number" : "State Registration Number"}
-                defaultValue={verification?.state_registration_number ?? ""}
-              />
-              <VSelect
-                name="province_or_state"
-                label={country === "CA" ? "Province" : "State"}
-                defaultValue={verification?.province_or_state ?? (country === "CA" ? "Ontario" : "California")}
-                options={country === "CA" ? provinces : usStates}
-              />
-            </div>
-            <VField name="business_address" label="Business Address" defaultValue={verification?.business_address ?? ""} />
-            <div className="grid grid-cols-2 gap-x-3">
-              <VField name="website_url" label="Website URL" defaultValue={verification?.website_url ?? ""} />
               <VSelect name="industry" label="Industry" defaultValue={verification?.industry ?? "Financial Services"} options={industries} />
             </div>
 
+            {/* Registration Type */}
+            <div className="mb-3.5">
+              <label className="mb-1 block text-xs font-medium text-text-dim">Registration Type</label>
+              <select
+                value={regType}
+                onChange={(e) => { setRegType(e.target.value); setFieldErrors({}); }}
+                className="w-full appearance-none rounded-lg border border-border-default bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-[13px] text-text-primary outline-none"
+              >
+                <option value="" disabled>Select registration type...</option>
+                {regTypeOptions.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              {fieldErrors.registration_type && (
+                <p className="mt-1 text-[11px] text-red-light">{fieldErrors.registration_type}</p>
+              )}
+            </div>
+
+            {/* Dynamic registration fields */}
+            {regType && (
+              <div className={showProvinceState ? "grid grid-cols-2 gap-x-3" : ""}>
+                <VField
+                  key={`${regType}-reg-field`}
+                  name={regFieldName}
+                  label={regFieldLabel}
+                  defaultValue={regFieldDefault}
+                  placeholder={regFieldPlaceholder}
+                  error={fieldErrors.tax_id || fieldErrors.state_registration_number}
+                />
+                {showProvinceState && (
+                  <VSelect
+                    name="province_or_state"
+                    label={country === "CA" ? "Province" : "State"}
+                    defaultValue={verification?.province_or_state ?? (country === "CA" ? "Ontario" : "California")}
+                    options={country === "CA" ? provinces : usStates}
+                  />
+                )}
+              </div>
+            )}
+
+            <VField name="business_address" label="Business Address" defaultValue={verification?.business_address ?? ""} />
+            <VField name="website_url" label="Website URL" defaultValue={verification?.website_url ?? ""} />
+
             <Button
               type="button"
-              onClick={() => setStep(2)}
+              onClick={handleContinue}
               className="mt-2 w-full justify-center bg-emerald-dark py-2.5 text-white hover:bg-emerald-dark/90"
             >
               Continue to Representative
             </Button>
           </div>
-        )}
+        </div>
 
-        {/* Step 2: Authorized Representative */}
-        {step === 2 && (
+        {/* Step 2: Authorized Representative — always rendered, hidden when not active */}
+        <div className={step === 2 ? "" : "hidden"}>
           <div className="rounded-xl border border-border-default bg-surface-card p-6">
             <div className="mb-4 flex items-center gap-2.5">
               <button
                 type="button"
-                onClick={() => setStep(1)}
+                onClick={() => { setStep(1); setFieldErrors({}); }}
                 className="flex rounded-lg bg-[rgba(255,255,255,0.05)] p-1.5 text-text-muted hover:text-text-primary"
               >
                 <ChevronLeft size={16} />
@@ -241,11 +414,21 @@ export function VerificationClient({ verification }: { verification: Verificatio
               This person will be the primary point of contact for verification and compliance matters.
             </p>
             <div className="grid grid-cols-2 gap-x-3">
-              <VField name="rep_full_name" label="Full Legal Name" defaultValue={verification?.rep_full_name ?? ""} />
+              <VField
+                name="rep_full_name"
+                label="Full Legal Name"
+                defaultValue={verification?.rep_full_name ?? ""}
+                error={fieldErrors.rep_full_name}
+              />
               <VField name="rep_job_title" label="Job Title" defaultValue={verification?.rep_job_title ?? ""} />
             </div>
             <div className="grid grid-cols-2 gap-x-3">
-              <VField name="rep_email" label="Email Address" defaultValue={verification?.rep_email ?? ""} />
+              <VField
+                name="rep_email"
+                label="Email Address"
+                defaultValue={verification?.rep_email ?? ""}
+                error={fieldErrors.rep_email}
+              />
               <VField name="rep_phone" label="Phone Number" defaultValue={verification?.rep_phone ?? ""} />
             </div>
             <VField name="rep_dob" label="Date of Birth" defaultValue={verification?.rep_dob ?? ""} />
@@ -253,7 +436,7 @@ export function VerificationClient({ verification }: { verification: Verificatio
               <Button
                 type="button"
                 variant="ghost"
-                onClick={() => setStep(1)}
+                onClick={() => { setStep(1); setFieldErrors({}); }}
                 className="flex-1 justify-center border border-border-default bg-[rgba(255,255,255,0.03)] py-2.5 text-text-muted hover:bg-[rgba(255,255,255,0.06)]"
               >
                 Back
@@ -268,7 +451,7 @@ export function VerificationClient({ verification }: { verification: Verificatio
               </Button>
             </div>
           </div>
-        )}
+        </div>
       </form>
     </div>
   );
@@ -279,11 +462,13 @@ function VField({
   label,
   defaultValue,
   placeholder,
+  error,
 }: {
   name: string;
   label: string;
   defaultValue?: string;
   placeholder?: string;
+  error?: string;
 }) {
   return (
     <div className="mb-3.5">
@@ -292,8 +477,12 @@ function VField({
         name={name}
         defaultValue={defaultValue}
         placeholder={placeholder}
-        className="w-full rounded-lg border border-border-default bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-[13px] text-text-primary outline-none"
+        className={cn(
+          "w-full rounded-lg border bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-[13px] text-text-primary outline-none",
+          error ? "border-[rgba(248,113,113,0.5)]" : "border-border-default"
+        )}
       />
+      {error && <p className="mt-1 text-[11px] text-red-light">{error}</p>}
     </div>
   );
 }

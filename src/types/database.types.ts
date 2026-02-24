@@ -912,6 +912,7 @@ export type Database = {
           legal_business_name: string | null
           org_id: string
           province_or_state: string | null
+          registration_type: string | null
           rep_dob: string | null
           rep_email: string | null
           rep_full_name: string | null
@@ -936,6 +937,7 @@ export type Database = {
           legal_business_name?: string | null
           org_id: string
           province_or_state?: string | null
+          registration_type?: string | null
           rep_dob?: string | null
           rep_email?: string | null
           rep_full_name?: string | null
@@ -960,6 +962,7 @@ export type Database = {
           legal_business_name?: string | null
           org_id?: string
           province_or_state?: string | null
+          registration_type?: string | null
           rep_dob?: string | null
           rep_email?: string | null
           rep_full_name?: string | null
