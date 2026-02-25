@@ -534,17 +534,16 @@ export function LeadsClient({
                 </Button>
               )}
               {lead.status === "showed" && (
-                <div className="mb-2 flex gap-1.5">
+                <div className="mb-2 flex flex-col gap-1.5">
                   <Button
                     onClick={() => handleStatusChange("closed_won")}
-                    className="flex-1 justify-center gap-1 bg-emerald-dark text-xs text-white hover:bg-emerald-dark/90"
+                    className="w-full justify-center gap-1 bg-emerald-dark text-xs text-white hover:bg-emerald-dark/90"
                   >
                     <Check size={12} /> Closed Won
                   </Button>
                   <Button
                     onClick={() => handleStatusChange("closed_lost")}
-                    variant="ghost"
-                    className="flex-1 justify-center gap-1 text-xs text-red-light"
+                    className="w-full justify-center gap-1 border border-border-default bg-surface-card text-xs text-red-light hover:bg-surface-card-hover"
                   >
                     <XCircle size={12} /> Closed Lost
                   </Button>
