@@ -2,6 +2,8 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { getLeadCalls } from "@/lib/queries/leads";
+import type { LeadCallItem } from "@/types";
 
 export async function updateLeadStatus(leadId: string, status: string) {
   const supabase = await createClient();
@@ -32,4 +34,8 @@ export async function updateLeadStatus(leadId: string, status: string) {
   revalidatePath("/leads");
   revalidatePath("/dashboard");
   return { success: true };
+}
+
+export async function fetchLeadCalls(leadId: string): Promise<LeadCallItem[]> {
+  return getLeadCalls(leadId);
 }

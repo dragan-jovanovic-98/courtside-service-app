@@ -47,15 +47,17 @@ function outcomeKey(outcome: string): string {
 export function CallsClient({
   calls,
   stats,
+  initialDetailId = null,
 }: {
   calls: CallListItem[];
   stats: { total: number; today: number; connected: number; booked: number };
+  initialDetailId?: string | null;
 }) {
   const [query, setQuery] = useState("");
   const [outcomeFilter, setOutcomeFilter] = useState("all");
   const [campaignFilter, setCampaignFilter] = useState("all");
   const [dirFilter, setDirFilter] = useState("all");
-  const [detailId, setDetailId] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(initialDetailId);
 
   const campaigns = [
     ...new Set(calls.map((c) => c.campaign).filter((c) => c !== "—")),

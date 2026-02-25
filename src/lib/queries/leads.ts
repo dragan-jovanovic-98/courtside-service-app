@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import type { LeadListItem, TimelineEvent, LeadWithDetails } from "@/types";
+import type { LeadListItem, TimelineEvent, LeadWithDetails, LeadCallItem } from "@/types";
 import { fullName } from "@/lib/format";
 import { formatRelativeTime, formatDateShort, formatDuration } from "@/lib/format";
 
@@ -128,6 +128,27 @@ export async function getLeadTimeline(
   );
 
   return events;
+}
+
+export async function getLeadCalls(leadId: string): Promise<LeadCallItem[]> {
+  const supabase = await createClient();
+
+  const { data } = await supabase
+    .from("calls")
+    .select("id, created_at, duration_seconds, outcome, ai_summary")
+    .eq("lead_id", leadId)
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  if (!data) return [];
+
+  return data.map((c) => ({
+    id: c.id,
+    date: formatDateShort(c.created_at),
+    duration: c.duration_seconds ? formatDuration(c.duration_seconds) : "0:00",
+    outcome: c.outcome ?? "unknown",
+    aiSummary: c.ai_summary ?? null,
+  }));
 }
 
 export async function getLeadStats() {

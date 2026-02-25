@@ -187,6 +187,14 @@ export type CallListItem = {
   recordingUrl?: string | null;
 };
 
+export type LeadCallItem = {
+  id: string;
+  date: string;
+  duration: string;
+  outcome: string;
+  aiSummary: string | null;
+};
+
 export type CalendarAppointmentData = {
   id: string;
   contact_id: string;

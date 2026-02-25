@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   ChevronLeft,
   Phone,
@@ -18,6 +19,7 @@ import {
   TrendingUp,
   X,
   FileSpreadsheet,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,9 +34,9 @@ import {
   outcomeBadgeColor,
   leadBadgeColor,
 } from "@/lib/design-tokens";
-import { updateLeadStatus } from "@/lib/actions/leads";
+import { updateLeadStatus, fetchLeadCalls } from "@/lib/actions/leads";
 import { callEdgeFunction } from "@/lib/supabase/edge-functions";
-import type { LeadListItem, TimelineEvent } from "@/types";
+import type { LeadListItem, TimelineEvent, LeadCallItem } from "@/types";
 
 const STATUSES = [
   "New",
@@ -429,6 +431,8 @@ export function LeadsClient({
   const [timeline] = useState<TimelineEvent[]>([]);
   const [showImport, setShowImport] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [leadCalls, setLeadCalls] = useState<LeadCallItem[]>([]);
+  const [loadingCalls, setLoadingCalls] = useState(false);
 
   const filtered = leads.filter((l) => {
     const matchesSearch =
@@ -452,6 +456,19 @@ export function LeadsClient({
     setShowAdd(false);
     router.refresh();
   };
+
+  // Fetch calls when detail view opens
+  useEffect(() => {
+    if (!detailId) {
+      setLeadCalls([]);
+      return;
+    }
+    setLoadingCalls(true);
+    fetchLeadCalls(detailId).then((calls) => {
+      setLeadCalls(calls);
+      setLoadingCalls(false);
+    });
+  }, [detailId]);
 
   // Detail View
   if (detailId) {
@@ -594,53 +611,112 @@ export function LeadsClient({
             </div>
           </div>
 
-          {/* Right column — Timeline */}
-          <div className="rounded-xl border border-border-default bg-surface-card p-5">
-            <SectionLabel>Timeline</SectionLabel>
-            {timeline.length > 0 ? (
-              timeline.map((t, i) => {
-                const iconData = timelineIcon(t.type);
-                return (
-                  <div
-                    key={i}
-                    className="flex gap-3"
-                    style={{
-                      marginBottom: i < timeline.length - 1 ? 16 : 0,
-                    }}
-                  >
-                    <div className="flex flex-col items-center">
-                      <div
-                        className={cn(
-                          "flex size-7 items-center justify-center rounded-full",
-                          iconData.bg,
-                          iconData.text
+          {/* Right column — Calls */}
+          <div className="space-y-4">
+            <div className="rounded-xl border border-border-default bg-surface-card p-5">
+              <SectionLabel>Calls</SectionLabel>
+              {loadingCalls ? (
+                <div className="space-y-2">
+                  {[1, 2].map((i) => (
+                    <div
+                      key={i}
+                      className="h-14 animate-pulse rounded-lg bg-[rgba(255,255,255,0.03)]"
+                    />
+                  ))}
+                </div>
+              ) : leadCalls.length > 0 ? (
+                <div className="space-y-1.5">
+                  {leadCalls.map((call) => (
+                    <Link
+                      key={call.id}
+                      href={`/calls?id=${call.id}`}
+                      className="flex items-center gap-3 rounded-lg border border-border-light bg-[rgba(255,255,255,0.02)] px-3 py-2.5 transition-colors hover:bg-[rgba(255,255,255,0.05)]"
+                    >
+                      <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-bg-strong text-emerald-light">
+                        <Phone size={12} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[13px] font-semibold text-text-primary">
+                            {call.duration}
+                          </span>
+                          <ColoredBadge
+                            color={
+                              outcomeBadgeColor[outcomeKey(call.outcome)] ??
+                              "default"
+                            }
+                          >
+                            {call.outcome}
+                          </ColoredBadge>
+                        </div>
+                        {call.aiSummary && (
+                          <p className="mt-0.5 truncate text-[11px] text-text-dim">
+                            {call.aiSummary}
+                          </p>
                         )}
-                      >
-                        {iconData.icon}
                       </div>
-                      {i < timeline.length - 1 && (
-                        <div className="mt-1 flex-1 border-l border-border-default" />
-                      )}
+                      <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-text-dim">
+                        {call.date}
+                        <ExternalLink size={10} />
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-[13px] text-text-dim">
+                  No calls yet
+                </div>
+              )}
+            </div>
+
+            {/* Timeline */}
+            <div className="rounded-xl border border-border-default bg-surface-card p-5">
+              <SectionLabel>Timeline</SectionLabel>
+              {timeline.length > 0 ? (
+                timeline.map((t, i) => {
+                  const iconData = timelineIcon(t.type);
+                  return (
+                    <div
+                      key={i}
+                      className="flex gap-3"
+                      style={{
+                        marginBottom: i < timeline.length - 1 ? 16 : 0,
+                      }}
+                    >
+                      <div className="flex flex-col items-center">
+                        <div
+                          className={cn(
+                            "flex size-7 items-center justify-center rounded-full",
+                            iconData.bg,
+                            iconData.text
+                          )}
+                        >
+                          {iconData.icon}
+                        </div>
+                        {i < timeline.length - 1 && (
+                          <div className="mt-1 flex-1 border-l border-border-default" />
+                        )}
+                      </div>
+                      <div className="pb-1">
+                        <div className="text-[11px] text-text-dim">
+                          {t.time}
+                        </div>
+                        <div className="mt-0.5 text-[13px] font-semibold text-text-primary">
+                          {t.title}
+                        </div>
+                        <div className="mt-0.5 text-xs text-text-dim">
+                          {t.detail}
+                        </div>
+                      </div>
                     </div>
-                    <div className="pb-1">
-                      <div className="text-[11px] text-text-dim">
-                        {t.time}
-                      </div>
-                      <div className="mt-0.5 text-[13px] font-semibold text-text-primary">
-                        {t.title}
-                      </div>
-                      <div className="mt-0.5 text-xs text-text-dim">
-                        {t.detail}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="text-[13px] text-text-dim">
-                No activity yet
-              </div>
-            )}
+                  );
+                })
+              ) : (
+                <div className="text-[13px] text-text-dim">
+                  No activity yet
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
