@@ -110,6 +110,16 @@
   * {
     @apply border-border outline-ring/50;
   }
+  button,
+  a,
+  [role="button"],
+  input[type="submit"],
+  input[type="button"],
+  input[type="reset"],
+  select,
+  summary {
+    cursor: pointer;
+  }
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "cv11", "ss01";
