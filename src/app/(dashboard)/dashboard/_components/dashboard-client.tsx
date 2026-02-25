@@ -220,7 +220,7 @@ export function DashboardClient({
           appointments.map((a, i) => (
             <Link
               key={a.id}
-              href="/leads"
+              href={`/calendar?id=${a.id}`}
               className={`flex items-center gap-2.5 px-4 py-[9px] transition-colors hover:bg-[rgba(255,255,255,0.02)] ${
                 i < appointments.length - 1
                   ? "border-b border-border-light"

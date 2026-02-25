@@ -7,7 +7,6 @@ import {
   Phone,
   User,
   Search,
-  Play,
   ArrowDownLeft,
   PhoneOutgoing,
 } from "lucide-react";
@@ -144,21 +143,14 @@ export function CallsClient({
 
         {/* Recording player */}
         {call.recordingUrl && (
-          <div className="mb-3 rounded-xl border border-border-default bg-surface-card p-4">
-            <div className="flex items-center gap-3">
-              <button className="flex size-9 shrink-0 items-center justify-center rounded-full bg-emerald-bg-strong">
-                <Play size={14} className="ml-0.5 text-emerald-light" />
-              </button>
-              <div className="flex-1">
-                <div className="mb-1.5 h-1 overflow-hidden rounded-sm bg-[rgba(255,255,255,0.06)]">
-                  <div className="h-full w-0 rounded-sm bg-emerald-light" />
-                </div>
-                <div className="flex justify-between text-[10px] tabular-nums text-text-dim">
-                  <span>0:00</span>
-                  <span>{call.duration}</span>
-                </div>
-              </div>
-            </div>
+          <div className="mb-3 rounded-xl border border-border-default bg-surface-card p-5">
+            <SectionLabel>Recording</SectionLabel>
+            <audio
+              controls
+              src={call.recordingUrl}
+              className="w-full [&::-webkit-media-controls-panel]:bg-[rgba(255,255,255,0.05)]"
+              preload="metadata"
+            />
           </div>
         )}
 
@@ -193,16 +185,15 @@ export function CallsClient({
         )}
 
         {/* Actions */}
-        <div className="flex gap-2">
-          <Button className="gap-1.5 bg-emerald-dark text-white hover:bg-emerald-dark/90">
-            <Phone size={13} /> Call Again
-          </Button>
-          <Button variant="ghost" asChild className="gap-1.5">
-            <Link href="/leads">
-              <User size={13} /> View Lead
-            </Link>
-          </Button>
-        </div>
+        {call.leadId && (
+          <div className="flex gap-2">
+            <Button variant="ghost" asChild className="gap-1.5">
+              <Link href={`/leads?id=${call.leadId}`}>
+                <User size={13} /> View Lead
+              </Link>
+            </Button>
+          </div>
+        )}
       </div>
     );
   }

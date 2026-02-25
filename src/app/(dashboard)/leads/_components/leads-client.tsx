@@ -418,16 +418,18 @@ export function LeadsClient({
   leads,
   stats,
   campaigns,
+  initialDetailId = null,
 }: {
   leads: LeadListItem[];
   stats: { total: number; followUps: number; appointments: number; new: number };
   campaigns: { id: string; name: string }[];
+  initialDetailId?: string | null;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [outcomeFilter, setOutcomeFilter] = useState("all");
-  const [detailId, setDetailId] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(initialDetailId);
   const [timeline] = useState<TimelineEvent[]>([]);
   const [showImport, setShowImport] = useState(false);
   const [showAdd, setShowAdd] = useState(false);

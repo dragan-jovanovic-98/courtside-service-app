@@ -1,14 +1,19 @@
 import { getAppointmentsByMonth, getCalendarStats } from "@/lib/queries/calendar";
 import { CalendarClient } from "./_components/calendar-client";
 
-export default async function CalendarPage() {
+export default async function CalendarPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ id?: string }>;
+}) {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1; // 1-indexed
 
-  const [appointmentsByDay, stats] = await Promise.all([
+  const [appointmentsByDay, stats, params] = await Promise.all([
     getAppointmentsByMonth(year, month),
     getCalendarStats(year, month),
+    searchParams,
   ]);
 
   const monthLabel = now.toLocaleDateString("en-US", {
@@ -24,6 +29,7 @@ export default async function CalendarPage() {
       today={now.getDate()}
       daysInMonth={new Date(year, month, 0).getDate()}
       firstDayOfWeek={new Date(year, month - 1, 1).getDay()}
+      initialAppointmentId={params.id ?? null}
     />
   );
 }

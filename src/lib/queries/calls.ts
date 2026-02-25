@@ -8,7 +8,7 @@ export async function getCalls(): Promise<CallListItem[]> {
   const { data } = await supabase
     .from("calls")
     .select(
-      "id, created_at, direction, duration_seconds, outcome, ai_summary, transcript_text, recording_url, contacts(first_name, last_name, phone), agents(name), campaigns(name)"
+      "id, lead_id, created_at, direction, duration_seconds, outcome, ai_summary, transcript_text, recording_url, contacts(first_name, last_name, phone), agents(name), campaigns(name)"
     )
     .order("created_at", { ascending: false })
     .limit(100);
@@ -26,6 +26,7 @@ export async function getCalls(): Promise<CallListItem[]> {
 
     return {
       id: row.id as string,
+      leadId: (row.lead_id as string | null) ?? null,
       date: formatDateShort(row.created_at as string),
       name: contact
         ? fullName(contact.first_name, contact.last_name)

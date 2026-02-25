@@ -174,6 +174,7 @@ export type LeadListItem = {
 
 export type CallListItem = {
   id: string;
+  leadId: string | null;
   date: string;
   name: string;
   phone: string;

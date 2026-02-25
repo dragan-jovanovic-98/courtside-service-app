@@ -34,6 +34,7 @@ export function CalendarClient({
   today,
   daysInMonth,
   firstDayOfWeek,
+  initialAppointmentId = null,
 }: {
   appointmentsByDay: Record<number, CalendarAppointmentData[]>;
   stats: {
@@ -46,13 +47,27 @@ export function CalendarClient({
   today: number;
   daysInMonth: number;
   firstDayOfWeek: number; // 0=Sun, 1=Mon, etc
+  initialAppointmentId?: string | null;
 }) {
   const router = useRouter();
+
+  // Find initial selection from appointment ID
+  let initialSelected: { day: number; idx: number } | null = null;
+  if (initialAppointmentId) {
+    for (const [dayStr, appts] of Object.entries(appointmentsByDay)) {
+      const idx = appts.findIndex((a) => a.id === initialAppointmentId);
+      if (idx !== -1) {
+        initialSelected = { day: Number(dayStr), idx };
+        break;
+      }
+    }
+  }
+
   const [selected, setSelected] = useState<{
     day: number;
     idx: number;
-  } | null>(null);
-  const [panelOpen, setPanelOpen] = useState(false);
+  } | null>(initialSelected);
+  const [panelOpen, setPanelOpen] = useState(!!initialSelected);
   const [actionBusy, setActionBusy] = useState(false);
   const [rescheduleMode, setRescheduleMode] = useState(false);
   const [rescheduleValue, setRescheduleValue] = useState("");
