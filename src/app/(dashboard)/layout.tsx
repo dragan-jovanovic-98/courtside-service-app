@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getUserProfile } from "@/lib/supabase/auth";
+import { getVerification } from "@/lib/queries/settings";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 
 export default async function DashboardLayout({
@@ -20,11 +21,15 @@ export default async function DashboardLayout({
     (firstName[0] ?? "") + (lastName[0] ?? "") || profile.email[0]?.toUpperCase() || "?";
   const planName = (profile.organizations as { name?: string } | null)?.name ?? undefined;
 
+  const verification = await getVerification();
+  const verificationStatus = verification?.status ?? "not_started";
+
   return (
     <DashboardShell
       userName={fullName}
       userInitials={initials.toUpperCase()}
       planName={planName}
+      verificationStatus={verificationStatus}
     >
       {children}
     </DashboardShell>
