@@ -114,6 +114,7 @@ export type DashboardActionItem = {
   id: string;
   contact_id: string;
   lead_id: string | null;
+  campaign_id: string | null;
   agent_id: string | null;
   name: string;
   reason: string;

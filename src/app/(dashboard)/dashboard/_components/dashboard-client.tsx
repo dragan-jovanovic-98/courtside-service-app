@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Plus,
   CalendarCheck,
@@ -22,6 +23,8 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { StatCard } from "@/components/ui/stat-card";
 import { SectionLabel } from "@/components/ui/section-label";
 import { OutcomeRow } from "@/components/ui/outcome-row";
@@ -33,8 +36,7 @@ import {
 } from "@/components/ui/action-dropdown";
 import { tokens } from "@/lib/design-tokens";
 import { formatCurrency } from "@/lib/format";
-import { resolveActionItem, unresolveActionItem } from "@/lib/actions/action-items";
-import { callEdgeFunction } from "@/lib/supabase/edge-functions";
+import { resolveActionItem, unresolveActionItem, scheduleCallback } from "@/lib/actions/action-items";
 import type {
   DashboardStats,
   DashboardAppointment,
@@ -104,9 +106,13 @@ export function DashboardClient({
   actionItems: DashboardActionItem[];
   campaigns: DashboardCampaign[];
 }) {
+  const router = useRouter();
   const [resolved, setResolved] = useState<
     Record<string, { label: string; color: string }>
   >({});
+  const [callbackModal, setCallbackModal] = useState<{
+    actionItem: DashboardActionItem;
+  } | null>(null);
 
   const handleResolve = async (
     id: string,
@@ -153,6 +159,18 @@ export function DashboardClient({
 
   return (
     <div>
+      {/* Schedule Callback Modal */}
+      {callbackModal && (
+        <ScheduleCallbackModal
+          actionItem={callbackModal.actionItem}
+          onClose={() => setCallbackModal(null)}
+          onSuccess={() => {
+            setCallbackModal(null);
+            router.refresh();
+          }}
+        />
+      )}
+
       {/* Header */}
       <div className="mb-7 flex items-center justify-between">
         <div>
@@ -300,19 +318,7 @@ export function DashboardClient({
                 label: "Schedule Callback",
                 icon: <Calendar size={13} />,
                 color: tokens.amber,
-                onClick: () => {
-                  const title = encodeURIComponent(`Callback: ${a.name}`);
-                  const detail = encodeURIComponent(
-                    `${a.reason}${a.campaign ? `\nCampaign: ${a.campaign}` : ""}`
-                  );
-                  // Default to 30 min slot starting 1 hour from now
-                  const start = new Date(Date.now() + 60 * 60 * 1000);
-                  const end = new Date(start.getTime() + 30 * 60 * 1000);
-                  const fmt = (d: Date) =>
-                    d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-                  const googleUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${detail}&dates=${fmt(start)}/${fmt(end)}`;
-                  window.open(googleUrl, "_blank");
-                },
+                onClick: () => setCallbackModal({ actionItem: a }),
               },
             ];
 
@@ -650,6 +656,156 @@ export function DashboardClient({
           No active campaigns
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Schedule Callback Modal
+// ---------------------------------------------------------------------------
+function ScheduleCallbackModal({
+  actionItem,
+  onClose,
+  onSuccess,
+}: {
+  actionItem: DashboardActionItem;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  // Default to tomorrow at 10:00 AM local
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(10, 0, 0, 0);
+  const defaultDate = tomorrow.toISOString().slice(0, 10);
+  const defaultTime = "10:00";
+
+  const [date, setDate] = useState(defaultDate);
+  const [time, setTime] = useState(defaultTime);
+  const [duration, setDuration] = useState(30);
+  const [notes, setNotes] = useState(actionItem.reason);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSchedule = async () => {
+    if (!date || !time) {
+      setError("Please select a date and time");
+      return;
+    }
+    if (!actionItem.lead_id || !actionItem.campaign_id) {
+      setError("This action item is missing lead or campaign data");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    const scheduledAt = new Date(`${date}T${time}:00`).toISOString();
+
+    const result = await scheduleCallback({
+      contactId: actionItem.contact_id,
+      leadId: actionItem.lead_id,
+      campaignId: actionItem.campaign_id,
+      scheduledAt,
+      durationMinutes: duration,
+      notes,
+    });
+
+    if (result.error) {
+      setError(result.error);
+      setLoading(false);
+    } else {
+      // Also resolve the action item
+      await resolveActionItem(actionItem.id, "followup_scheduled");
+      onSuccess();
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-xl border border-border-default bg-[#141820] p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-text-primary">
+            Schedule Callback
+          </h2>
+          <button onClick={onClose} className="text-text-dim hover:text-text-muted">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="mb-4 rounded-lg border border-border-default bg-surface-card p-3">
+          <div className="text-sm font-semibold text-text-primary">{actionItem.name}</div>
+          {actionItem.campaign && (
+            <div className="mt-0.5 text-xs text-text-dim">{actionItem.campaign}</div>
+          )}
+        </div>
+
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-text-muted">Date</Label>
+              <Input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="border-border-default bg-surface-input text-text-primary"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-text-muted">Time</Label>
+              <Input
+                type="time"
+                value={time}
+                onChange={(e) => setTime(e.target.value)}
+                className="border-border-default bg-surface-input text-text-primary"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-text-muted">Duration</Label>
+            <select
+              className="w-full appearance-none rounded-lg border border-border-default bg-surface-input px-3 py-2 text-sm text-text-primary outline-none"
+              value={duration}
+              onChange={(e) => setDuration(Number(e.target.value))}
+            >
+              <option value={15}>15 minutes</option>
+              <option value={30}>30 minutes</option>
+              <option value={45}>45 minutes</option>
+              <option value={60}>1 hour</option>
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-text-muted">Notes</Label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+              className="w-full rounded-lg border border-border-default bg-surface-input px-3 py-2 text-sm text-text-primary outline-none placeholder:text-text-dim"
+              placeholder="Add callback notes..."
+            />
+          </div>
+
+          {error && <p className="text-sm text-red-light">{error}</p>}
+
+          <div className="flex gap-2 pt-2">
+            <Button variant="ghost" className="flex-1" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 gap-1.5 bg-emerald-dark text-white hover:bg-emerald-dark/90"
+              onClick={handleSchedule}
+              disabled={loading}
+            >
+              {loading ? "Scheduling…" : (
+                <>
+                  <CalendarCheck size={14} /> Schedule
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

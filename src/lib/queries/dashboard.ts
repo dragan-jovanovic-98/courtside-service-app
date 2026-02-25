@@ -277,6 +277,7 @@ export async function getActionItems(): Promise<DashboardActionItem[]> {
       id: row.id as string,
       contact_id: row.contact_id as string,
       lead_id: (row.lead_id as string | null) ?? null,
+      campaign_id: lead?.campaign_id ?? null,
       agent_id: lead?.campaigns?.agent_id ?? null,
       name: contact
         ? fullName(contact.first_name, contact.last_name)
