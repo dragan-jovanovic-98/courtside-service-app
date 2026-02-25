@@ -112,6 +112,8 @@ export function DashboardClient({
   >({});
   const [callbackModal, setCallbackModal] = useState<{
     actionItem: DashboardActionItem;
+    resolutionType: string;
+    title: string;
   } | null>(null);
 
   const handleResolve = async (
@@ -163,6 +165,8 @@ export function DashboardClient({
       {callbackModal && (
         <ScheduleCallbackModal
           actionItem={callbackModal.actionItem}
+          resolutionType={callbackModal.resolutionType}
+          title={callbackModal.title}
           onClose={() => setCallbackModal(null)}
           onSuccess={() => {
             setCallbackModal(null);
@@ -318,7 +322,7 @@ export function DashboardClient({
                 label: "Schedule Callback",
                 icon: <Calendar size={13} />,
                 color: tokens.amber,
-                onClick: () => setCallbackModal({ actionItem: a }),
+                onClick: () => setCallbackModal({ actionItem: a, resolutionType: "followup_scheduled", title: "Schedule Callback" }),
               },
             ];
 
@@ -328,24 +332,14 @@ export function DashboardClient({
                 icon: <CalendarCheck size={13} />,
                 color: tokens.emerald,
                 onClick: () =>
-                  handleResolve(
-                    a.id,
-                    "Appointment Scheduled",
-                    tokens.emerald,
-                    "appointment_scheduled"
-                  ),
+                  setCallbackModal({ actionItem: a, resolutionType: "appointment_scheduled", title: "Schedule Appointment" }),
               },
               {
                 label: "Follow-up Scheduled",
                 icon: <Bookmark size={13} />,
                 color: tokens.blue,
                 onClick: () =>
-                  handleResolve(
-                    a.id,
-                    "Follow-up Scheduled",
-                    tokens.blue,
-                    "followup_scheduled"
-                  ),
+                  setCallbackModal({ actionItem: a, resolutionType: "followup_scheduled", title: "Schedule Follow-up" }),
               },
               {
                 label: "Not Interested",
@@ -665,10 +659,14 @@ export function DashboardClient({
 // ---------------------------------------------------------------------------
 function ScheduleCallbackModal({
   actionItem,
+  resolutionType,
+  title,
   onClose,
   onSuccess,
 }: {
   actionItem: DashboardActionItem;
+  resolutionType: string;
+  title: string;
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -715,7 +713,7 @@ function ScheduleCallbackModal({
       setLoading(false);
     } else {
       // Also resolve the action item
-      await resolveActionItem(actionItem.id, "followup_scheduled");
+      await resolveActionItem(actionItem.id, resolutionType);
       onSuccess();
     }
   };
@@ -725,7 +723,7 @@ function ScheduleCallbackModal({
       <div className="w-full max-w-md rounded-xl border border-border-default bg-[#141820] p-6 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-text-primary">
-            Schedule Callback
+            {title}
           </h2>
           <button onClick={onClose} className="text-text-dim hover:text-text-muted">
             <X size={18} />
