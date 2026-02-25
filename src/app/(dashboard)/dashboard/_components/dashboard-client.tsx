@@ -279,37 +279,40 @@ export function DashboardClient({
                 label: "Call Now",
                 icon: <PhoneCall size={13} />,
                 color: tokens.emerald,
-                onClick: async () => {
-                  if (!a.agent_id) {
-                    alert("No agent assigned to this lead's campaign");
-                    return;
-                  }
-                  const { error } = await callEdgeFunction("initiate-call", {
-                    agent_id: a.agent_id,
-                    lead_id: a.lead_id,
-                    contact_id: a.contact_id,
-                  });
-                  if (error) alert(`Call failed: ${error}`);
-                  else alert("Call initiated");
-                },
+                disabled: true,
+                onClick: () => {},
               },
               {
                 label: "Send Text",
                 icon: <MessageSquare size={13} />,
                 color: tokens.blue,
-                onClick: () => {},
-              },
-              {
-                label: "Schedule Callback",
-                icon: <Calendar size={13} />,
-                color: tokens.amber,
+                disabled: true,
                 onClick: () => {},
               },
               {
                 label: "Send Email",
                 icon: <Mail size={13} />,
                 color: tokens.purple,
+                disabled: true,
                 onClick: () => {},
+              },
+              {
+                label: "Schedule Callback",
+                icon: <Calendar size={13} />,
+                color: tokens.amber,
+                onClick: () => {
+                  const title = encodeURIComponent(`Callback: ${a.name}`);
+                  const detail = encodeURIComponent(
+                    `${a.reason}${a.campaign ? `\nCampaign: ${a.campaign}` : ""}`
+                  );
+                  // Default to 30 min slot starting 1 hour from now
+                  const start = new Date(Date.now() + 60 * 60 * 1000);
+                  const end = new Date(start.getTime() + 30 * 60 * 1000);
+                  const fmt = (d: Date) =>
+                    d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+                  const googleUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${detail}&dates=${fmt(start)}/${fmt(end)}`;
+                  window.open(googleUrl, "_blank");
+                },
               },
             ];
 

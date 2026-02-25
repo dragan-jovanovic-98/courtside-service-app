@@ -15,6 +15,7 @@ export interface ActionOption {
   icon?: ReactNode;
   color?: string;
   onClick: () => void;
+  disabled?: boolean;
 }
 
 interface ActionDropdownProps {
@@ -46,18 +47,22 @@ export function ActionDropdown({
         {options.map((option) => (
           <DropdownMenuItem
             key={option.label}
-            onClick={option.onClick}
+            onClick={option.disabled ? undefined : option.onClick}
+            disabled={option.disabled}
             className="gap-2 text-xs"
           >
             {option.icon && (
               <span
                 className="flex"
-                style={{ color: option.color || undefined }}
+                style={{ color: option.disabled ? undefined : (option.color || undefined) }}
               >
                 {option.icon}
               </span>
             )}
             {option.label}
+            {option.disabled && (
+              <span className="ml-auto text-[10px] text-text-dim">Soon</span>
+            )}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>
