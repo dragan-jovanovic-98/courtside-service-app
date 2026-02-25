@@ -578,29 +578,19 @@ export function LeadsClient({
             {/* Action buttons */}
             <div className="flex flex-col gap-1.5">
               <Button
+                disabled
                 className="justify-center gap-1.5 bg-emerald-dark text-white hover:bg-emerald-dark/90"
-                onClick={async () => {
-                  if (!lead.agent_id) {
-                    alert("No agent assigned to this campaign");
-                    return;
-                  }
-                  const { error } = await callEdgeFunction("initiate-call", {
-                    agent_id: lead.agent_id,
-                    lead_id: lead.id,
-                    contact_id: lead.contact_id,
-                    campaign_id: lead.campaign_id,
-                  });
-                  if (error) alert(`Call failed: ${error}`);
-                  else alert("Call initiated");
-                }}
               >
                 <Phone size={13} /> Call Now
+                <span className="ml-auto text-[10px] opacity-50">Soon</span>
               </Button>
-              <Button variant="ghost" className="justify-center gap-1.5">
+              <Button variant="ghost" disabled className="justify-center gap-1.5">
                 <MessageSquare size={13} /> Text
+                <span className="ml-auto text-[10px] opacity-50">Soon</span>
               </Button>
-              <Button variant="ghost" className="justify-center gap-1.5">
+              <Button variant="ghost" disabled className="justify-center gap-1.5">
                 <Mail size={13} /> Email
+                <span className="ml-auto text-[10px] opacity-50">Soon</span>
               </Button>
             </div>
           </div>
