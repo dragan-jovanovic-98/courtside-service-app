@@ -8,6 +8,7 @@ import {
   formatTimeForSpeech,
   formatDateTimeForSpeech,
 } from "../_shared/speech.ts";
+import { logToolCall, startTimer } from "../_shared/tool-logger.ts";
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -46,6 +47,7 @@ serve(async (req) => {
       return errorResponse("Unauthorized — service role key required", 401);
     }
 
+    const elapsed = startTimer();
     const body = await req.json();
     const {
       appointment_id,
@@ -55,6 +57,9 @@ serve(async (req) => {
       reason,
       call_metadata,
     } = body;
+
+    const logInput = { appointment_id, campaign_id, org_id, new_scheduled_at };
+    const callId = call_metadata?.call_id ?? null;
 
     // ── Validate input ──
     if (!appointment_id) return errorResponse("appointment_id is required", 400);
@@ -81,6 +86,7 @@ serve(async (req) => {
       .single();
 
     if (fetchError || !existing) {
+      logToolCall({ tool_name: "agent-reschedule-appointment", org_id, campaign_id, call_id: callId, input: logInput, output: { rescheduled: false, reason: "appointment_not_found" }, duration_ms: elapsed() });
       return jsonResponse({
         rescheduled: false,
         reason: "appointment_not_found",
@@ -91,6 +97,7 @@ serve(async (req) => {
     }
 
     if (existing.status === "cancelled") {
+      logToolCall({ tool_name: "agent-reschedule-appointment", org_id, campaign_id, call_id: callId, input: logInput, output: { rescheduled: false, reason: "appointment_cancelled" }, duration_ms: elapsed() });
       return jsonResponse({
         rescheduled: false,
         reason: "appointment_cancelled",
@@ -144,6 +151,7 @@ serve(async (req) => {
     });
 
     if (hasConflict) {
+      logToolCall({ tool_name: "agent-reschedule-appointment", org_id, campaign_id, call_id: callId, input: logInput, output: { rescheduled: false, reason: "slot_taken" }, duration_ms: elapsed() });
       return jsonResponse({
         rescheduled: false,
         reason: "slot_taken",
@@ -275,6 +283,7 @@ serve(async (req) => {
       hour12: false,
     });
 
+    logToolCall({ tool_name: "agent-reschedule-appointment", org_id, campaign_id, call_id: callId, lead_id: existing.lead_id, input: logInput, output: { rescheduled: true, appointment_id, calendar_event_updated: calendarEventUpdated }, duration_ms: elapsed() });
     return jsonResponse({
       rescheduled: true,
       appointment_id,
@@ -290,6 +299,7 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error("agent-reschedule-appointment error:", error);
+    logToolCall({ tool_name: "agent-reschedule-appointment", org_id: "unknown", input: {}, output: {}, duration_ms: 0, error: error.message ?? "Internal server error" });
     return errorResponse(error.message ?? "Internal server error", 500);
   }
 });

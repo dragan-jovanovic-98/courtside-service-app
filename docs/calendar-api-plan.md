@@ -1219,14 +1219,20 @@ Organized as a Notion wiki section:
 - Outlook integration guide, NLP parsing reference, and shared types all included in a single doc.
 - Notion pages skipped per user instruction.
 
-### Phase F: Analytics & Monitoring (Day 10)
+### Phase F: Analytics & Monitoring (Day 10) — COMPLETED 2026-02-27
 **Goal:** Observability
 
-| Task | Details | Complexity |
+| Task | Details | Status |
 |---|---|---|
-| Create `agent_tool_calls` logging table | Migration | Low |
-| Add logging to all agent-* endpoints | Code changes | Low |
-| Add N8N alert workflow for calendar errors | N8N workflow | Medium |
+| Create `agent_tool_calls` logging table | Migration with 3 indexes + RLS | Done |
+| Add logging to all agent-* endpoints | Fire-and-forget via `_shared/tool-logger.ts` | Done |
+| Add N8N alert workflow for calendar errors | Workflow `nxZyodsfy5xjBalJ` (inactive, needs activation) | Done |
+
+**Notes:**
+- `agent_tool_calls` table: id, org_id, call_id, campaign_id, lead_id, tool_name, input (jsonb), output (jsonb), duration_ms, calendar_provider, error, created_at. Indexes for org+time, call_id, and errors.
+- `_shared/tool-logger.ts`: Fire-and-forget `logToolCall()` + `startTimer()` helper. Uses its own service client. Never throws — logging failures are swallowed silently.
+- All 3 agent endpoints log: tool_name, org_id, campaign_id, call_id, lead_id, input summary, output summary, duration_ms, calendar_provider, error.
+- N8N workflow queries `agent_tool_calls` every 15 min for rows with non-null `error`, formats an alert email via SendGrid. Created inactive — activate when ready.
 
 ---
 

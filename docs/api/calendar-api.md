@@ -921,6 +921,30 @@ interface CalendarInfo {
 idx_appointments_scheduled_at_org ON appointments (org_id, scheduled_at) WHERE status != 'cancelled'
 ```
 
+### New Table: `agent_tool_calls`
+
+Logging table for all agent-* endpoint invocations (analytics & debugging).
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | uuid (PK) | Auto-generated |
+| `org_id` | uuid (FK) | Organization (tenant isolation) |
+| `call_id` | uuid (FK, nullable) | Linked call record |
+| `campaign_id` | uuid (FK, nullable) | Campaign context |
+| `lead_id` | uuid (FK, nullable) | Lead context |
+| `tool_name` | text | Endpoint name (e.g., `agent-check-availability`) |
+| `input` | jsonb | Request summary (campaign_id, requested_time, etc.) |
+| `output` | jsonb | Response summary (available, booked, error code, etc.) |
+| `duration_ms` | integer | Endpoint execution time |
+| `calendar_provider` | text (nullable) | `google`, `outlook`, or null |
+| `error` | text (nullable) | Error message if the call failed |
+| `created_at` | timestamptz | Timestamp |
+
+**Indexes:**
+- `idx_agent_tool_calls_org_created` — org_id + created_at DESC (analytics)
+- `idx_agent_tool_calls_call` — call_id WHERE NOT NULL (debugging)
+- `idx_agent_tool_calls_errors` — org_id + created_at DESC WHERE error IS NOT NULL (monitoring)
+
 ---
 
 ## Auth Summary Table

@@ -9,6 +9,7 @@ import {
   formatTimeForSpeech,
   formatDateTimeForSpeech,
 } from "../_shared/speech.ts";
+import { logToolCall, startTimer } from "../_shared/tool-logger.ts";
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -73,6 +74,7 @@ serve(async (req) => {
       return errorResponse("Unauthorized — service role key required", 401);
     }
 
+    const elapsed = startTimer();
     const body = await req.json();
     const {
       campaign_id,
@@ -84,6 +86,9 @@ serve(async (req) => {
       notes,
       call_metadata,
     } = body;
+
+    const logInput = { campaign_id, org_id, lead_id, scheduled_at };
+    const callId = call_metadata?.call_id ?? null;
 
     // ── Validate input ──
     if (!campaign_id) return errorResponse("campaign_id is required", 400);
@@ -138,6 +143,7 @@ serve(async (req) => {
       });
       const formatted = formatDateTimeForSpeech(dateStr, timeStr, timezone);
 
+      logToolCall({ tool_name: "agent-book-appointment", org_id, campaign_id, call_id: callId, lead_id, input: logInput, output: { booked: false, reason: "booking_disabled" }, duration_ms: elapsed() });
       return jsonResponse({
         booked: false,
         reason: "booking_disabled",
@@ -177,6 +183,7 @@ serve(async (req) => {
     if (hasConflict) {
       // Slot was taken — find alternatives on the same day
       // (simplified: just return the conflict notice, agent can call check-availability again)
+      logToolCall({ tool_name: "agent-book-appointment", org_id, campaign_id, call_id: callId, lead_id, input: logInput, output: { booked: false, reason: "slot_taken" }, duration_ms: elapsed() });
       return jsonResponse({
         booked: false,
         reason: "slot_taken",
@@ -324,6 +331,7 @@ serve(async (req) => {
 
     const timeFormatted = formatDateTimeForSpeech(fmtDate, fmtTime, timezone);
 
+    logToolCall({ tool_name: "agent-book-appointment", org_id, campaign_id, call_id: callId, lead_id, input: logInput, output: { booked: true, appointment_id: appointment.id, calendar_event_created: calendarEventCreated }, duration_ms: elapsed() });
     return jsonResponse({
       booked: true,
       appointment_id: appointment.id,
@@ -339,6 +347,7 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error("agent-book-appointment error:", error);
+    logToolCall({ tool_name: "agent-book-appointment", org_id: "unknown", input: {}, output: {}, duration_ms: 0, error: error.message ?? "Internal server error" });
     return errorResponse(error.message ?? "Internal server error", 500);
   }
 });

@@ -14,6 +14,7 @@ import {
   generateSpeakableResponse,
 } from "../_shared/speech.ts";
 import type { SpeakableSlot } from "../_shared/speech.ts";
+import { logToolCall, startTimer } from "../_shared/tool-logger.ts";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -265,6 +266,7 @@ serve(async (req) => {
       return errorResponse("Unauthorized — service role key required", 401);
     }
 
+    const elapsed = startTimer();
     const body = await req.json();
     const {
       campaign_id,
@@ -283,6 +285,9 @@ serve(async (req) => {
     if (!org_id) {
       return errorResponse("org_id is required", 400);
     }
+
+    const logInput = { campaign_id, org_id, requested_time_string, lead_id, contact_id };
+    const callId = call_metadata?.call_id ?? null;
 
     const supabase = createServiceClient();
 
@@ -356,7 +361,7 @@ serve(async (req) => {
 
         // If token refresh failed / needs reauth
         if (!accessToken) {
-          return jsonResponse({
+          const resp = {
             available: null,
             error: "calendar_auth_expired",
             speakableResponse:
@@ -366,7 +371,9 @@ serve(async (req) => {
               campaign_id,
               fallback: "manual_confirmation",
             },
-          });
+          };
+          logToolCall({ tool_name: "agent-check-availability", org_id, campaign_id, call_id: callId, lead_id, input: logInput, output: resp, duration_ms: elapsed(), calendar_provider: calendarProvider, error: "calendar_auth_expired" });
+          return jsonResponse(resp);
         }
       }
     }
@@ -548,7 +555,7 @@ serve(async (req) => {
         isEarliestQuery: false,
       });
 
-      return jsonResponse({
+      const resp = {
         available: true,
         requestedTime: requestedTimeFormatted,
         requestedTimeISO,
@@ -564,7 +571,9 @@ serve(async (req) => {
           slots_checked: slotsChecked,
           parse_confidence: parsed.confidence,
         },
-      });
+      };
+      logToolCall({ tool_name: "agent-check-availability", org_id, campaign_id, call_id: callId, lead_id, input: logInput, output: { available: true, parse_confidence: parsed.confidence }, duration_ms: elapsed(), calendar_provider: calendarProvider });
+      return jsonResponse(resp);
     }
 
     // ── Earliest available / range / alternatives ──
@@ -578,13 +587,15 @@ serve(async (req) => {
         isEarliestQuery,
       });
 
+      const hasAlts = alternatives.length > 0;
+      logToolCall({ tool_name: "agent-check-availability", org_id, campaign_id, call_id: callId, lead_id, input: logInput, output: { available: hasAlts, alternatives_count: alternatives.length, parse_confidence: parsed.confidence }, duration_ms: elapsed(), calendar_provider: calendarProvider });
       return jsonResponse({
-        available: alternatives.length > 0,
+        available: hasAlts,
         requestedTime: requestedTimeFormatted,
         requestedTimeISO: null,
         duration_minutes: durationMinutes,
         timezone,
-        alternatives: alternatives.length > 0 ? alternatives : null,
+        alternatives: hasAlts ? alternatives : null,
         speakableResponse: speakable,
         meta: {
           campaign_id,
@@ -605,6 +616,7 @@ serve(async (req) => {
       isEarliestQuery: false,
     });
 
+    logToolCall({ tool_name: "agent-check-availability", org_id, campaign_id, call_id: callId, lead_id, input: logInput, output: { available: false, alternatives_count: alternatives.length, parse_confidence: parsed.confidence }, duration_ms: elapsed(), calendar_provider: calendarProvider });
     return jsonResponse({
       available: false,
       requestedTime: requestedTimeFormatted,
@@ -622,6 +634,7 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error("agent-check-availability error:", error);
+    logToolCall({ tool_name: "agent-check-availability", org_id: "unknown", input: {}, output: {}, duration_ms: 0, error: error.message ?? "Internal server error" });
     return errorResponse(error.message ?? "Internal server error", 500);
   }
 });
