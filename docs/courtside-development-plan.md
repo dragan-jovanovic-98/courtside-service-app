@@ -1334,6 +1334,32 @@ courtside-ai/
 | 11.6 | Calendar page amendments (external events, manual appointments) | PARALLEL | L |
 | 11.7 | Leads page & lead detail amendments (CRM badges, import) | PARALLEL | M |
 | 11.8 | Integration testing (end-to-end flows) | SEQUENTIAL — last | L |
+| 11.9 | Vercel & Supabase env vars for OAuth | GATE — manual setup | S |
+
+### Phase 11.9: Vercel Environment Variables [GATE — Manual]
+
+The following environment variables must be added to **Vercel Dashboard → courtside-ai-services → Settings → Environment Variables** for the Production (and optionally Preview) environments before OAuth integrations will work:
+
+| Variable | Source | Notes |
+|---|---|---|
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | Google Cloud Console → APIs & Services → Credentials | OAuth 2.0 Client ID (Web application type) |
+| `GOOGLE_CLIENT_SECRET` | Google Cloud Console → same credential | Client secret |
+| `NEXT_PUBLIC_MICROSOFT_CLIENT_ID` | Azure Portal → App Registrations | Application (client) ID |
+| `MICROSOFT_CLIENT_SECRET` | Azure Portal → Certificates & Secrets | Client secret value |
+| `NEXT_PUBLIC_HUBSPOT_CLIENT_ID` | HubSpot Developer → App → Auth | Client ID |
+| `HUBSPOT_CLIENT_SECRET` | HubSpot Developer → App → Auth | Client secret |
+
+**Also set on Supabase Edge Functions** (via Supabase Dashboard → Edge Functions → Secrets):
+- `GOOGLE_CLIENT_SECRET`
+- `MICROSOFT_CLIENT_SECRET`
+- `HUBSPOT_CLIENT_SECRET`
+
+These are needed by the `calendar-oauth-callback` and `crm-oauth-callback` Edge Functions for token exchange.
+
+**OAuth Redirect URIs to configure in each provider:**
+- Google: `https://services.court-side.ai/api/integrations/google/callback`
+- Microsoft: `https://services.court-side.ai/api/integrations/outlook/callback`
+- HubSpot: `https://services.court-side.ai/api/integrations/hubspot/callback`
 
 ### Key decisions:
 - **Calendars:** Org-level ownership. Multiple accounts + sub-calendars. Set per campaign. External OR Courtside for availability. All appointments always in Courtside DB.
