@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, Check, Plus, X, Upload, Users, Calendar, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -59,16 +59,15 @@ for (let h = 6; h <= 23; h++) {
     TIME_OPTIONS.push(`${hour12}:${min} ${ampm}`);
   }
 }
-// Add 11:59 PM as the latest end option
 TIME_OPTIONS.push("11:59 PM");
 
 const makeDefaultSchedule = (): ScheduleDay[] => [
-  { day: "Monday", on: true, slots: [["6:00 PM", "8:00 PM"]] },
-  { day: "Tuesday", on: true, slots: [["6:00 PM", "8:00 PM"]] },
-  { day: "Wednesday", on: true, slots: [["9:00 AM", "11:00 AM"], ["6:00 PM", "8:00 PM"]] },
-  { day: "Thursday", on: true, slots: [["6:00 PM", "8:00 PM"]] },
-  { day: "Friday", on: true, slots: [["5:00 PM", "8:00 PM"]] },
-  { day: "Saturday", on: true, slots: [["12:00 PM", "4:00 PM"]] },
+  { day: "Monday", on: true, slots: [["9:00 AM", "5:00 PM"]] },
+  { day: "Tuesday", on: true, slots: [["9:00 AM", "5:00 PM"]] },
+  { day: "Wednesday", on: true, slots: [["9:00 AM", "5:00 PM"]] },
+  { day: "Thursday", on: true, slots: [["9:00 AM", "5:00 PM"]] },
+  { day: "Friday", on: true, slots: [["9:00 AM", "5:00 PM"]] },
+  { day: "Saturday", on: false, slots: [] },
   { day: "Sunday", on: false, slots: [] },
 ];
 
@@ -81,6 +80,77 @@ const makeDefaultApptSchedule = (): ScheduleDay[] => [
   { day: "Saturday", on: false, slots: [] },
   { day: "Sunday", on: false, slots: [] },
 ];
+
+/* ─── Slot Popover (used by both schedule sections) ───────────────── */
+
+function SlotPopover({
+  initial,
+  onSave,
+  onClose,
+}: {
+  initial?: [string, string];
+  onSave: (start: string, end: string) => void;
+  onClose: () => void;
+}) {
+  const [start, setStart] = useState(initial?.[0] ?? "9:00 AM");
+  const [end, setEnd] = useState(initial?.[1] ?? "5:00 PM");
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  // Close on click outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [onClose]);
+
+  return (
+    <div
+      ref={popoverRef}
+      className="absolute left-0 top-full z-20 mt-1 rounded-lg border border-border-default bg-[#1a1f2b] p-3 shadow-xl"
+    >
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-text-dim">
+        {initial ? "Edit Time Window" : "Add Time Window"}
+      </div>
+      <div className="flex items-center gap-2">
+        <div>
+          <div className="mb-1 text-[10px] text-text-dim">Start</div>
+          <select
+            value={start}
+            onChange={(e) => setStart(e.target.value)}
+            className="rounded-md border border-border-default bg-surface-input px-2 py-1.5 text-xs text-text-primary outline-none"
+          >
+            {TIME_OPTIONS.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+        <span className="mt-4 text-text-dim">→</span>
+        <div>
+          <div className="mb-1 text-[10px] text-text-dim">End</div>
+          <select
+            value={end}
+            onChange={(e) => setEnd(e.target.value)}
+            className="rounded-md border border-border-default bg-surface-input px-2 py-1.5 text-xs text-text-primary outline-none"
+          >
+            {TIME_OPTIONS.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+        <button
+          onClick={() => onSave(start, end)}
+          className="mt-4 rounded-md bg-emerald-dark px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-emerald-dark/90"
+        >
+          {initial ? "Save" : "Add"}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export function CampaignWizard({
   agents,
@@ -151,7 +221,7 @@ export function CampaignWizard({
   const toggleDay = (dayIdx: number) => {
     setSchedule((prev) =>
       prev.map((d, i) =>
-        i === dayIdx ? { ...d, on: !d.on, slots: d.on ? [] : [["6:00 PM", "8:00 PM"]] } : d
+        i === dayIdx ? { ...d, on: !d.on, slots: d.on ? [] : [["9:00 AM", "5:00 PM"]] } : d
       )
     );
   };
@@ -164,11 +234,15 @@ export function CampaignWizard({
     );
   };
 
-  const addSlot = (dayIdx: number) => {
+  const saveSlot = (dayIdx: number, slotIdx: number | null, start: string, end: string) => {
     setSchedule((prev) =>
-      prev.map((d, i) =>
-        i === dayIdx ? { ...d, slots: [...d.slots, ["6:00 PM", "8:00 PM"]] } : d
-      )
+      prev.map((d, i) => {
+        if (i !== dayIdx) return d;
+        if (slotIdx !== null) {
+          return { ...d, slots: d.slots.map((s, si) => (si === slotIdx ? [start, end] : s)) };
+        }
+        return { ...d, slots: [...d.slots, [start, end]] };
+      })
     );
   };
 
@@ -188,33 +262,20 @@ export function CampaignWizard({
     );
   };
 
-  const addApptSlot = (dayIdx: number) => {
+  const saveApptSlot = (dayIdx: number, slotIdx: number | null, start: string, end: string) => {
     setApptSchedule((prev) =>
-      prev.map((d, i) =>
-        i === dayIdx ? { ...d, slots: [...d.slots, ["9:00 AM", "5:00 PM"]] } : d
-      )
+      prev.map((d, i) => {
+        if (i !== dayIdx) return d;
+        if (slotIdx !== null) {
+          return { ...d, slots: d.slots.map((s, si) => (si === slotIdx ? [start, end] : s)) };
+        }
+        return { ...d, slots: [...d.slots, [start, end]] };
+      })
     );
   };
 
-  const updateSlotTime = (dayIdx: number, slotIdx: number, pos: 0 | 1, value: string) => {
-    setSchedule((prev) =>
-      prev.map((d, i) =>
-        i === dayIdx
-          ? { ...d, slots: d.slots.map((s, si) => si === slotIdx ? (pos === 0 ? [value, s[1]] : [s[0], value]) : s) }
-          : d
-      )
-    );
-  };
-
-  const updateApptSlotTime = (dayIdx: number, slotIdx: number, pos: 0 | 1, value: string) => {
-    setApptSchedule((prev) =>
-      prev.map((d, i) =>
-        i === dayIdx
-          ? { ...d, slots: d.slots.map((s, si) => si === slotIdx ? (pos === 0 ? [value, s[1]] : [s[0], value]) : s) }
-          : d
-      )
-    );
-  };
+  // Track which popover is open: "calling-{dayIdx}" or "calling-{dayIdx}-{slotIdx}" (edit)
+  const [openPopover, setOpenPopover] = useState<string | null>(null);
 
   const activeDays = schedule.filter((d) => d.on).map((d) => d.day.slice(0, 3)).join(", ");
   const apptActiveDays = apptSchedule.filter((d) => d.on).map((d) => d.day.slice(0, 3)).join(", ");
@@ -549,44 +610,56 @@ export function CampaignWizard({
                     {day.day}
                   </span>
                   {day.on ? (
-                    <div className="flex flex-1 flex-wrap items-center gap-1.5">
+                    <div className="relative flex flex-1 flex-wrap items-center gap-1.5">
                       {day.slots.map((s, si) => (
-                        <div key={si} className="flex items-center gap-1 rounded-md border border-border-light bg-surface-input px-1 py-[2px]">
-                          <select
-                            value={s[0]}
-                            onChange={(e) => updateSlotTime(dayIdx, si, 0, e.target.value)}
-                            className="appearance-none bg-transparent text-[11px] tabular-nums text-text-primary outline-none"
+                        <div
+                          key={si}
+                          className="flex items-center gap-1 rounded-md border border-border-light bg-surface-input px-2 py-[3px]"
+                        >
+                          <button
+                            onClick={() => setOpenPopover(`calling-${dayIdx}-${si}`)}
+                            className="flex items-center gap-1 text-[11px] tabular-nums text-text-primary hover:text-emerald-light"
                           >
-                            {TIME_OPTIONS.map((t) => (
-                              <option key={t} value={t}>{t}</option>
-                            ))}
-                          </select>
-                          <span className="text-[10px] text-text-dim">→</span>
-                          <select
-                            value={s[1]}
-                            onChange={(e) => updateSlotTime(dayIdx, si, 1, e.target.value)}
-                            className="appearance-none bg-transparent text-[11px] tabular-nums text-text-primary outline-none"
+                            {s[0]} <span className="text-[10px] text-text-dim">→</span> {s[1]}
+                          </button>
+                          <button
+                            onClick={() => removeSlot(dayIdx, si)}
+                            className="ml-0.5 flex text-text-dim hover:text-red-light"
                           >
-                            {TIME_OPTIONS.map((t) => (
-                              <option key={t} value={t}>{t}</option>
-                            ))}
-                          </select>
-                          {day.slots.length > 1 && (
-                            <button
-                              onClick={() => removeSlot(dayIdx, si)}
-                              className="ml-0.5 flex text-text-dim hover:text-text-muted"
-                            >
-                              <X size={10} />
-                            </button>
+                            <X size={10} />
+                          </button>
+                          {openPopover === `calling-${dayIdx}-${si}` && (
+                            <SlotPopover
+                              initial={[s[0], s[1]]}
+                              onSave={(start, end) => {
+                                saveSlot(dayIdx, si, start, end);
+                                setOpenPopover(null);
+                              }}
+                              onClose={() => setOpenPopover(null)}
+                            />
                           )}
                         </div>
                       ))}
-                      <button
-                        onClick={() => addSlot(dayIdx)}
-                        className="flex items-center gap-0.5 rounded-md border border-dashed border-border-default px-2 py-[3px] text-[10px] text-text-dim hover:text-text-muted"
-                      >
-                        <Plus size={9} /> Add slot
-                      </button>
+                      <div className="relative">
+                        <button
+                          onClick={() => setOpenPopover(`calling-${dayIdx}`)}
+                          className="flex items-center gap-0.5 rounded-md border border-dashed border-border-default px-2 py-[3px] text-[10px] text-text-dim hover:text-text-muted"
+                        >
+                          <Plus size={9} /> Add slot
+                        </button>
+                        {openPopover === `calling-${dayIdx}` && (
+                          <SlotPopover
+                            onSave={(start, end) => {
+                              saveSlot(dayIdx, null, start, end);
+                              setOpenPopover(null);
+                            }}
+                            onClose={() => setOpenPopover(null)}
+                          />
+                        )}
+                      </div>
+                      {day.slots.length === 0 && (
+                        <span className="text-[11px] text-text-dim">No time windows — add one or toggle off</span>
+                      )}
                     </div>
                   ) : (
                     <span className="text-[11px] italic text-text-faint">Off</span>
@@ -641,44 +714,56 @@ export function CampaignWizard({
                     {day.day}
                   </span>
                   {day.on ? (
-                    <div className="flex flex-1 flex-wrap items-center gap-1.5">
+                    <div className="relative flex flex-1 flex-wrap items-center gap-1.5">
                       {day.slots.map((s, si) => (
-                        <div key={si} className="flex items-center gap-1 rounded-md border border-border-light bg-surface-input px-1 py-[2px]">
-                          <select
-                            value={s[0]}
-                            onChange={(e) => updateApptSlotTime(dayIdx, si, 0, e.target.value)}
-                            className="appearance-none bg-transparent text-[11px] tabular-nums text-text-primary outline-none"
+                        <div
+                          key={si}
+                          className="flex items-center gap-1 rounded-md border border-border-light bg-surface-input px-2 py-[3px]"
+                        >
+                          <button
+                            onClick={() => setOpenPopover(`appt-${dayIdx}-${si}`)}
+                            className="flex items-center gap-1 text-[11px] tabular-nums text-text-primary hover:text-emerald-light"
                           >
-                            {TIME_OPTIONS.map((t) => (
-                              <option key={t} value={t}>{t}</option>
-                            ))}
-                          </select>
-                          <span className="text-[10px] text-text-dim">→</span>
-                          <select
-                            value={s[1]}
-                            onChange={(e) => updateApptSlotTime(dayIdx, si, 1, e.target.value)}
-                            className="appearance-none bg-transparent text-[11px] tabular-nums text-text-primary outline-none"
+                            {s[0]} <span className="text-[10px] text-text-dim">→</span> {s[1]}
+                          </button>
+                          <button
+                            onClick={() => removeApptSlot(dayIdx, si)}
+                            className="ml-0.5 flex text-text-dim hover:text-red-light"
                           >
-                            {TIME_OPTIONS.map((t) => (
-                              <option key={t} value={t}>{t}</option>
-                            ))}
-                          </select>
-                          {day.slots.length > 1 && (
-                            <button
-                              onClick={() => removeApptSlot(dayIdx, si)}
-                              className="ml-0.5 flex text-text-dim hover:text-text-muted"
-                            >
-                              <X size={10} />
-                            </button>
+                            <X size={10} />
+                          </button>
+                          {openPopover === `appt-${dayIdx}-${si}` && (
+                            <SlotPopover
+                              initial={[s[0], s[1]]}
+                              onSave={(start, end) => {
+                                saveApptSlot(dayIdx, si, start, end);
+                                setOpenPopover(null);
+                              }}
+                              onClose={() => setOpenPopover(null)}
+                            />
                           )}
                         </div>
                       ))}
-                      <button
-                        onClick={() => addApptSlot(dayIdx)}
-                        className="flex items-center gap-0.5 rounded-md border border-dashed border-border-default px-2 py-[3px] text-[10px] text-text-dim hover:text-text-muted"
-                      >
-                        <Plus size={9} /> Add slot
-                      </button>
+                      <div className="relative">
+                        <button
+                          onClick={() => setOpenPopover(`appt-${dayIdx}`)}
+                          className="flex items-center gap-0.5 rounded-md border border-dashed border-border-default px-2 py-[3px] text-[10px] text-text-dim hover:text-text-muted"
+                        >
+                          <Plus size={9} /> Add slot
+                        </button>
+                        {openPopover === `appt-${dayIdx}` && (
+                          <SlotPopover
+                            onSave={(start, end) => {
+                              saveApptSlot(dayIdx, null, start, end);
+                              setOpenPopover(null);
+                            }}
+                            onClose={() => setOpenPopover(null)}
+                          />
+                        )}
+                      </div>
+                      {day.slots.length === 0 && (
+                        <span className="text-[11px] text-text-dim">No time windows — add one or toggle off</span>
+                      )}
                     </div>
                   ) : (
                     <span className="text-[11px] italic text-text-faint">Off</span>
