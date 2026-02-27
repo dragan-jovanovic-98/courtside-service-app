@@ -62,11 +62,11 @@ for (let h = 6; h <= 23; h++) {
 TIME_OPTIONS.push("11:59 PM");
 
 const makeDefaultSchedule = (): ScheduleDay[] => [
-  { day: "Monday", on: true, slots: [["9:00 AM", "5:00 PM"]] },
-  { day: "Tuesday", on: true, slots: [["9:00 AM", "5:00 PM"]] },
-  { day: "Wednesday", on: true, slots: [["9:00 AM", "5:00 PM"]] },
-  { day: "Thursday", on: true, slots: [["9:00 AM", "5:00 PM"]] },
-  { day: "Friday", on: true, slots: [["9:00 AM", "5:00 PM"]] },
+  { day: "Monday", on: true, slots: [["6:00 PM", "8:00 PM"]] },
+  { day: "Tuesday", on: true, slots: [["6:00 PM", "8:00 PM"]] },
+  { day: "Wednesday", on: true, slots: [["6:00 PM", "8:00 PM"]] },
+  { day: "Thursday", on: true, slots: [["6:00 PM", "8:00 PM"]] },
+  { day: "Friday", on: true, slots: [["5:00 PM", "7:00 PM"]] },
   { day: "Saturday", on: false, slots: [] },
   { day: "Sunday", on: false, slots: [] },
 ];
@@ -281,7 +281,7 @@ export function CampaignWizard({
   const [openPopover, setOpenPopover] = useState<string | null>(null);
 
   // Schedule presets
-  const [activePreset, setActivePreset] = useState<"working" | "after" | null>("working");
+  const [activePreset, setActivePreset] = useState<"working" | "after" | null>("after");
 
   const applyPreset = (preset: "working" | "after") => {
     const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -620,18 +620,6 @@ export function CampaignWizard({
             <SectionLabel>Calling Schedule</SectionLabel>
             <div className="mb-2.5 flex gap-2">
               <button
-                onClick={() => applyPreset("working")}
-                className={cn(
-                  "rounded-lg border px-3 py-1.5 text-[11px] font-semibold transition-colors",
-                  activePreset === "working"
-                    ? "border-emerald-dark bg-emerald-bg text-emerald-light"
-                    : "border-border-default text-text-muted hover:border-text-dim hover:text-text-primary"
-                )}
-              >
-                Working Hours
-                <span className="ml-1 text-[10px] font-normal text-text-dim">9–5 Mon–Fri</span>
-              </button>
-              <button
                 onClick={() => applyPreset("after")}
                 className={cn(
                   "rounded-lg border px-3 py-1.5 text-[11px] font-semibold transition-colors",
@@ -642,6 +630,18 @@ export function CampaignWizard({
               >
                 After Hours
                 <span className="ml-1 text-[10px] font-normal text-text-dim">Evenings Mon–Fri</span>
+              </button>
+              <button
+                onClick={() => applyPreset("working")}
+                className={cn(
+                  "rounded-lg border px-3 py-1.5 text-[11px] font-semibold transition-colors",
+                  activePreset === "working"
+                    ? "border-emerald-dark bg-emerald-bg text-emerald-light"
+                    : "border-border-default text-text-muted hover:border-text-dim hover:text-text-primary"
+                )}
+              >
+                Working Hours
+                <span className="ml-1 text-[10px] font-normal text-text-dim">9–5 Mon–Fri</span>
               </button>
             </div>
             <div className="flex flex-col gap-1">
