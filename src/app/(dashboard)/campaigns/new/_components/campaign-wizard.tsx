@@ -1,18 +1,50 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Check, Plus, X, Upload, Users, Calendar } from "lucide-react";
+import { ChevronLeft, Check, Plus, X, Upload, Users, Calendar, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ColoredBadge } from "@/components/ui/colored-badge";
 import { SectionLabel } from "@/components/ui/section-label";
 import { cn } from "@/lib/utils";
 import { callEdgeFunction } from "@/lib/supabase/edge-functions";
+import { addLeadsFromContacts } from "@/lib/actions/leads";
+import type { ContactForSelection } from "@/types";
+import type { BadgeColor } from "@/lib/design-tokens";
 
 type AgentOption = { id: string; name: string; tag: string; description: string };
 type CalendarOption = { id: string; label: string };
+type CampaignRef = { id: string; name: string };
 type ScheduleDay = { day: string; on: boolean; slots: string[][] };
+
+type FilterBubble = {
+  type: "status" | "campaign";
+  value: string;
+  label: string;
+};
+
+const LEAD_STATUSES = [
+  { value: "new", label: "New" },
+  { value: "contacted", label: "Contacted" },
+  { value: "interested", label: "Interested" },
+  { value: "appt_set", label: "Appt Set" },
+  { value: "showed", label: "Showed" },
+  { value: "closed_won", label: "Closed Won" },
+  { value: "closed_lost", label: "Closed Lost" },
+  { value: "bad_lead", label: "Bad Lead" },
+];
+
+const STATUS_COLORS: Record<string, BadgeColor> = {
+  new: "blue",
+  contacted: "purple",
+  interested: "amber",
+  appt_set: "emerald",
+  showed: "emerald",
+  closed_won: "emerald",
+  closed_lost: "red",
+  bad_lead: "red",
+};
 
 const STEPS = ["Select Agent", "Add Leads", "Schedule", "Review"];
 
@@ -40,10 +72,14 @@ export function CampaignWizard({
   agents,
   calendarOptions = [],
   hasCrm = false,
+  contacts = [],
+  existingCampaigns = [],
 }: {
   agents: AgentOption[];
   calendarOptions?: CalendarOption[];
   hasCrm?: boolean;
+  contacts?: ContactForSelection[];
+  existingCampaigns?: CampaignRef[];
 }) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -57,6 +93,10 @@ export function CampaignWizard({
   const [csvRowCount, setCsvRowCount] = useState(0);
   const [crmImportCount, setCrmImportCount] = useState(0);
   const [crmImporting, setCrmImporting] = useState(false);
+
+  // Step 2: Existing contacts
+  const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
+  const [showExistingModal, setShowExistingModal] = useState(false);
 
   // Step 3: Schedule & rules
   const [schedule, setSchedule] = useState<ScheduleDay[]>(makeDefaultSchedule);
@@ -198,6 +238,19 @@ export function CampaignWizard({
         });
         if (importErr) {
           setError(`Campaign created but lead import failed: ${importErr}`);
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      // 2b. Add existing contacts as leads
+      if (selectedContactIds.size > 0) {
+        const result = await addLeadsFromContacts(
+          Array.from(selectedContactIds),
+          campaign.id
+        );
+        if (result.error) {
+          setError(`Campaign created but adding existing contacts failed: ${result.error}`);
           setSubmitting(false);
           return;
         }
@@ -378,11 +431,31 @@ export function CampaignWizard({
                 {!hasCrm ? "Not connected" : crmImportCount > 0 ? `${crmImportCount} contacts` : "HubSpot contacts"}
               </div>
             </button>
-            {/* Existing Leads placeholder */}
-            <div className="cursor-not-allowed rounded-xl border-2 border-dashed border-border-default p-8 text-center opacity-50">
-              <div className="text-[13px] font-semibold text-text-muted">Existing Leads</div>
-              <div className="mt-1 text-[11px] text-text-dim">Coming soon</div>
-            </div>
+            {/* Existing Contacts */}
+            <button
+              onClick={() => setShowExistingModal(true)}
+              disabled={contacts.length === 0}
+              className={cn(
+                "rounded-xl border-2 border-dashed p-8 text-center transition-colors",
+                contacts.length === 0
+                  ? "cursor-not-allowed border-border-default opacity-50"
+                  : selectedContactIds.size > 0
+                    ? "border-[rgba(167,139,250,0.4)] bg-[rgba(167,139,250,0.06)]"
+                    : "border-border-default hover:border-text-dim"
+              )}
+            >
+              <Users size={16} className="mx-auto mb-1.5 text-text-dim" />
+              <div className="text-[13px] font-semibold text-text-muted">
+                {selectedContactIds.size > 0 ? "Existing Contacts" : "Existing Contacts"}
+              </div>
+              <div className="mt-1 text-[11px] text-text-dim">
+                {contacts.length === 0
+                  ? "No contacts yet"
+                  : selectedContactIds.size > 0
+                    ? `${selectedContactIds.size} selected`
+                    : `${contacts.length} available`}
+              </div>
+            </button>
           </div>
           {csvFileName && (
             <div className="mb-3 rounded-xl border border-border-default bg-surface-card p-3.5">
@@ -619,7 +692,7 @@ export function CampaignWizard({
               {([
                 ["Campaign", campaignName || "—"],
                 ["Agent", agents.find((a) => a.id === agentId)?.name || "—"],
-                ["Leads", (csvRowCount > 0 ? `${csvRowCount} CSV` : "") + (crmImportCount > 0 ? `${csvRowCount > 0 ? " + " : ""}${crmImportCount} CRM` : "") || "None"],
+                ["Leads", [csvRowCount > 0 ? `${csvRowCount} CSV` : "", crmImportCount > 0 ? `${crmImportCount} CRM` : "", selectedContactIds.size > 0 ? `${selectedContactIds.size} existing` : ""].filter(Boolean).join(" + ") || "None"],
                 ["Schedule", activeDays || "None"],
                 ["Limit", `${dailyLimit}/day`],
                 ["Retries", `${maxRetries} per lead`],
@@ -654,6 +727,349 @@ export function CampaignWizard({
           </div>
         </div>
       )}
+
+      {/* Existing Contacts Modal */}
+      {showExistingModal && (
+        <ExistingContactsModal
+          contacts={contacts}
+          existingCampaigns={existingCampaigns}
+          selectedIds={selectedContactIds}
+          onConfirm={(ids) => {
+            setSelectedContactIds(ids);
+            setShowExistingModal(false);
+          }}
+          onClose={() => setShowExistingModal(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ─── Existing Contacts Modal ─────────────────────────────────────── */
+
+function ExistingContactsModal({
+  contacts,
+  existingCampaigns,
+  selectedIds,
+  onConfirm,
+  onClose,
+}: {
+  contacts: ContactForSelection[];
+  existingCampaigns: CampaignRef[];
+  selectedIds: Set<string>;
+  onConfirm: (ids: Set<string>) => void;
+  onClose: () => void;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set(selectedIds));
+  const [searchText, setSearchText] = useState("");
+  const [filters, setFilters] = useState<FilterBubble[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Build campaign name map
+  const campaignMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of existingCampaigns) map.set(c.id, c.name);
+    return map;
+  }, [existingCampaigns]);
+
+  // Eligible contacts: exclude DNC (already handled by query, but just in case)
+  const eligibleContacts = useMemo(
+    () => contacts.filter((c) => !c.is_dnc),
+    [contacts]
+  );
+
+  // Smart search suggestions
+  const suggestions = useMemo(() => {
+    const q = searchText.toLowerCase().trim();
+    if (!q) return [];
+
+    const results: FilterBubble[] = [];
+
+    // Status suggestions
+    for (const s of LEAD_STATUSES) {
+      if (
+        s.label.toLowerCase().includes(q) ||
+        s.value.toLowerCase().includes(q)
+      ) {
+        // Don't suggest if already active
+        if (!filters.some((f) => f.type === "status" && f.value === s.value)) {
+          results.push({ type: "status", value: s.value, label: s.label });
+        }
+      }
+    }
+
+    // Campaign suggestions
+    for (const c of existingCampaigns) {
+      if (c.name.toLowerCase().includes(q)) {
+        if (!filters.some((f) => f.type === "campaign" && f.value === c.id)) {
+          results.push({ type: "campaign", value: c.id, label: c.name });
+        }
+      }
+    }
+
+    return results.slice(0, 5);
+  }, [searchText, filters, existingCampaigns]);
+
+  // Apply filters + text search
+  const filteredContacts = useMemo(() => {
+    let result = eligibleContacts;
+
+    // Apply filter bubbles
+    for (const f of filters) {
+      if (f.type === "status") {
+        result = result.filter((c) =>
+          c.leads.some((l) => l.status === f.value)
+        );
+      } else if (f.type === "campaign") {
+        result = result.filter((c) =>
+          c.leads.some((l) => l.campaign_id === f.value)
+        );
+      }
+    }
+
+    // Apply text search (name, phone, company)
+    const q = searchText.toLowerCase().trim();
+    if (q && suggestions.length === 0) {
+      // Only apply as text search if no filter suggestions match
+      result = result.filter((c) => {
+        const name = `${c.first_name} ${c.last_name ?? ""}`.toLowerCase();
+        const phone = c.phone.toLowerCase();
+        const company = (c.company ?? "").toLowerCase();
+        return name.includes(q) || phone.includes(q) || company.includes(q);
+      });
+    }
+
+    return result;
+  }, [eligibleContacts, filters, searchText, suggestions.length]);
+
+  const toggleContact = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const c of filteredContacts) next.add(c.id);
+      return next;
+    });
+  };
+
+  const deselectAll = () => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const c of filteredContacts) next.delete(c.id);
+      return next;
+    });
+  };
+
+  const addFilter = (f: FilterBubble) => {
+    setFilters((prev) => [...prev, f]);
+    setSearchText("");
+    setShowSuggestions(false);
+    inputRef.current?.focus();
+  };
+
+  const removeFilter = (idx: number) => {
+    setFilters((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const allFilteredSelected = filteredContacts.length > 0 && filteredContacts.every((c) => selected.has(c.id));
+
+  // Get status badges for a contact
+  const getContactStatuses = (c: ContactForSelection) => {
+    const seen = new Set<string>();
+    return c.leads
+      .filter((l) => {
+        if (seen.has(l.status)) return false;
+        seen.add(l.status);
+        return true;
+      })
+      .map((l) => l.status);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+      <div className="flex max-h-[85vh] w-full max-w-[560px] flex-col rounded-2xl border border-border-default bg-[#141820]">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-border-default px-5 py-4">
+          <div>
+            <h2 className="text-[15px] font-bold text-text-primary">Add Existing Contacts</h2>
+            <p className="mt-0.5 text-[11px] text-text-dim">
+              {eligibleContacts.length} contacts available · {selected.size} selected
+            </p>
+          </div>
+          <button onClick={onClose} className="text-text-dim hover:text-text-muted">
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Search + Filters */}
+        <div className="border-b border-border-default px-5 py-3">
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" />
+            <input
+              ref={inputRef}
+              value={searchText}
+              onChange={(e) => {
+                setSearchText(e.target.value);
+                setShowSuggestions(true);
+              }}
+              onFocus={() => setShowSuggestions(true)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && suggestions.length > 0) {
+                  e.preventDefault();
+                  addFilter(suggestions[0]);
+                }
+                if (e.key === "Escape") {
+                  setShowSuggestions(false);
+                }
+              }}
+              placeholder="Search name, phone, company — or type a status/campaign to filter..."
+              className="w-full rounded-lg border border-border-default bg-surface-input py-2 pl-9 pr-3 text-xs text-text-primary placeholder:text-text-dim outline-none focus:border-text-dim"
+            />
+            {/* Suggestions dropdown */}
+            {showSuggestions && suggestions.length > 0 && (
+              <div className="absolute left-0 right-0 top-full z-10 mt-1 rounded-lg border border-border-default bg-[#1a1f2b] py-1 shadow-xl">
+                {suggestions.map((s, i) => (
+                  <button
+                    key={`${s.type}-${s.value}`}
+                    onClick={() => addFilter(s)}
+                    className={cn(
+                      "flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-[rgba(255,255,255,0.05)]",
+                      i === 0 && "bg-[rgba(255,255,255,0.03)]"
+                    )}
+                  >
+                    <span className="text-text-dim">
+                      {s.type === "status" ? "Filter by status:" : "Filter by campaign:"}
+                    </span>
+                    <span className="font-semibold text-text-primary">{s.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Filter bubbles */}
+          {filters.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {filters.map((f, i) => (
+                <span
+                  key={i}
+                  className="flex items-center gap-1 rounded-md bg-[rgba(255,255,255,0.08)] px-2.5 py-1 text-[11px] font-medium text-text-primary"
+                >
+                  <span className="text-text-dim">
+                    {f.type === "status" ? "Status:" : "Campaign:"}
+                  </span>
+                  {f.label}
+                  <button
+                    onClick={() => removeFilter(i)}
+                    className="ml-0.5 text-text-dim hover:text-text-muted"
+                  >
+                    <X size={10} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Select All / Deselect All */}
+        <div className="flex items-center justify-between border-b border-border-default px-5 py-2">
+          <span className="text-[11px] text-text-dim">
+            {filteredContacts.length} contact{filteredContacts.length !== 1 ? "s" : ""} shown
+          </span>
+          <button
+            onClick={allFilteredSelected ? deselectAll : selectAll}
+            className="text-[11px] font-semibold text-emerald-light hover:underline"
+          >
+            {allFilteredSelected ? "Deselect All" : "Select All"}
+          </button>
+        </div>
+
+        {/* Contact List */}
+        <div className="flex-1 overflow-y-auto px-2 py-1" onClick={() => setShowSuggestions(false)}>
+          {filteredContacts.length === 0 ? (
+            <div className="py-10 text-center text-xs text-text-dim">
+              No contacts match your search or filters.
+            </div>
+          ) : (
+            filteredContacts.map((c) => {
+              const isSelected = selected.has(c.id);
+              const statuses = getContactStatuses(c);
+              const name = c.last_name
+                ? `${c.first_name} ${c.last_name}`
+                : c.first_name;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => toggleContact(c.id)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors",
+                    isSelected
+                      ? "bg-[rgba(167,139,250,0.08)]"
+                      : "hover:bg-[rgba(255,255,255,0.03)]"
+                  )}
+                >
+                  {/* Checkbox */}
+                  <div
+                    className={cn(
+                      "flex size-4 shrink-0 items-center justify-center rounded border",
+                      isSelected
+                        ? "border-purple-light bg-purple-light"
+                        : "border-border-default"
+                    )}
+                  >
+                    {isSelected && <Check size={10} className="text-white" />}
+                  </div>
+
+                  {/* Info */}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-xs font-semibold text-text-primary">
+                        {name}
+                      </span>
+                      {statuses.map((s) => (
+                        <ColoredBadge key={s} color={STATUS_COLORS[s] ?? "default"}>
+                          {LEAD_STATUSES.find((ls) => ls.value === s)?.label ?? s}
+                        </ColoredBadge>
+                      ))}
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-3 text-[11px] text-text-dim">
+                      <span>{c.phone}</span>
+                      {c.company && <span>{c.company}</span>}
+                      {c.leads.length > 0 && (
+                        <span>
+                          {c.leads.length} campaign{c.leads.length !== 1 ? "s" : ""}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between border-t border-border-default px-5 py-3">
+          <button onClick={onClose} className="text-xs text-text-muted hover:text-text-primary">
+            Cancel
+          </button>
+          <Button
+            onClick={() => onConfirm(selected)}
+            disabled={selected.size === 0}
+            className="bg-emerald-dark px-6 text-xs text-white hover:bg-emerald-dark/90"
+          >
+            Add {selected.size} Contact{selected.size !== 1 ? "s" : ""}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

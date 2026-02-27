@@ -225,3 +225,15 @@ export type TimelineEvent = {
   detail: string;
   createdAt: string;
 };
+
+/** Contact with lead memberships — used in "Add Existing Contacts" modal */
+export type ContactForSelection = {
+  id: string;
+  first_name: string;
+  last_name: string | null;
+  phone: string;
+  email: string | null;
+  company: string | null;
+  is_dnc: boolean;
+  leads: { campaign_id: string; status: string }[];
+};
