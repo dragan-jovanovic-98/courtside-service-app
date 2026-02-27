@@ -1155,85 +1155,397 @@ Separate from calls, when an inbound SMS arrives (Twilio webhook → N8N):
 
 ## 9. Calendar Integration Architecture
 
-### Design Principle
-The AI agent **reads** availability from the calendar. The **database** writes back to the calendar. The dashboard is always the source of truth.
+> **Updated Feb 2026** — This section documents the complete, production-implemented calendar sync system including all Edge Functions, DB triggers, OAuth flows, and the Retell AI agent booking flow.
+
+### 9.1 Design Principle
+
+The AI agent **reads** availability from the calendar. The **database** writes back to the calendar via a centralized DB trigger. The dashboard is always the source of truth.
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   READS (AI → Calendar)              │
-│                                                       │
-│  During a call, AI needs to suggest available times:  │
-│  Retell Agent → API call → Google/Outlook Calendar    │
-│  → "Thursday 10:30 AM is available"                   │
-│  → AI offers this slot to the lead                    │
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                   READS (AI → Calendar)                          │
+│                                                                   │
+│  During a live call, AI checks what times are available:         │
+│  Retell Agent → agent-check-availability Edge Function           │
+│    → Reads campaign appointment_schedules (business hours)       │
+│    → Reads Google/Outlook Calendar API (busy periods)            │
+│    → Reads appointments table (Courtside-booked appointments)    │
+│    → Returns available 30-min slots as JSON + speakable text     │
+└─────────────────────────────────────────────────────────────────┘
 
-┌─────────────────────────────────────────────────────┐
-│              WRITES (Database → Calendar)             │
-│                                                       │
-│  After appointment is created in Supabase:            │
-│  N8N detects new appointment (DB trigger or webhook)  │
-│  → Create event in Google/Outlook Calendar            │
-│  → Store `google_calendar_event_id` on appointment    │
-│                                                       │
-│  After appointment is rescheduled/cancelled:          │
-│  Dashboard updates appointment in Supabase            │
-│  → N8N detects change                                 │
-│  → Update/delete event in Google/Outlook Calendar     │
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│              WRITES (Database → Calendar)                         │
+│                                                                   │
+│  Centralized through ONE path — the DB trigger:                  │
+│                                                                   │
+│  ANY appointment change (INSERT / UPDATE / DELETE / cancel)      │
+│    → DB trigger: trg_appointment_change                          │
+│    → Calls: sync-appointment-to-calendar Edge Function           │
+│    → Creates/updates/deletes event in Google or Outlook          │
+│    → Stores calendar_event_id + sync_status on appointment row   │
+│                                                                   │
+│  Sources of appointment changes:                                  │
+│    • AI agent books via agent-book-appointment                   │
+│    • AI agent reschedules via agent-reschedule-appointment        │
+│    • Dashboard (broker creates/edits/cancels)                    │
+│    • Schedule Callback (action item resolution)                   │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### Why This Architecture?
+**CRITICAL: No Edge Function should ever sync to the calendar directly.** All calendar writes go through the `sync-appointment-to-calendar` function, triggered by the DB trigger. This prevents duplicate events.
 
-1. **Dashboard is source of truth** — If a broker reschedules from the dashboard, the calendar updates. If they cancel, it cancels. No sync conflicts.
-2. **AI doesn't need write access** — The Retell agent only needs read access to check availability. Simpler, safer.
-3. **Works without calendar connected** — If a broker hasn't connected their calendar, the system still works. Appointments exist in the database. Calendar sync is optional.
-4. **Handles both Google and Outlook** — The write path is in N8N, so we can support multiple calendar providers without changing the core system.
+### 9.2 Why This Architecture?
 
-### Calendar Availability Check (During AI Call)
+1. **Single sync path** — Every appointment change (from AI, dashboard, or API) flows through the same DB trigger → Edge Function. No duplicate events, no missed syncs.
+2. **Dashboard is source of truth** — If a broker reschedules from the dashboard, the calendar updates. If they cancel, it cancels.
+3. **Works without calendar connected** — If `calendar_connection_id` is NULL on the appointment, the DB trigger skips the sync entirely. Appointments still exist in the database.
+4. **Handles both Google and Outlook** — The sync function detects the provider from `calendar_connections.provider` and calls the appropriate API.
 
-This is the real-time read that happens mid-call:
+### 9.3 Database Tables Involved
 
-| Step | Component | Action |
+#### `appointments` table — Calendar sync columns
+
+| Column | Type | Description |
 |---|---|---|
-| 1 | Retell Agent | AI determines the lead wants to book |
-| 2 | Retell → Custom Function | Calls a Supabase Edge Function: `check-availability` |
-| 3 | Edge Function | Reads the broker's connected calendar (Google/Outlook API) for the next 5 business days |
-| 4 | Edge Function | Also checks `appointments` table for any existing Courtside-booked appointments (in case calendar sync is delayed) |
-| 5 | Edge Function | Returns available slots as JSON |
-| 6 | Retell Agent | Offers slots to the lead: "I have Thursday at 10:30 or Friday at 2:00 PM" |
+| `calendar_connection_id` | uuid FK → calendar_connections | Which calendar to sync to. NULL = no external sync. Set from campaign's `calendar_connection_id` at booking time. |
+| `calendar_event_id` | text | Provider-specific event ID (Google event ID or Outlook event ID). Set by sync function after creating the event. |
+| `calendar_provider` | text | `"google"` or `"outlook"`. Set by sync function. |
+| `calendar_synced_at` | timestamptz | Last successful sync timestamp. |
+| `sync_status` | text | `"pending"`, `"synced"`, `"failed"`, `"not_applicable"`. Set to `pending` on insert if calendar connected, `not_applicable` if not. |
 
-### New Edge Function Needed
+#### `calendar_connections` table
 
-| Function | Purpose |
-|---|---|
-| `check-availability` | Called by Retell during a call. Reads Google/Outlook Calendar + existing appointments. Returns available time slots. |
-| `sync-appointment-to-calendar` | Called by N8N after appointment created/updated/cancelled. Writes to Google/Outlook Calendar. |
+| Column | Type | Description |
+|---|---|---|
+| `id` | uuid PK | |
+| `org_id` | uuid FK → organizations | |
+| `integration_id` | uuid FK → integrations | The OAuth integration (has access/refresh tokens) |
+| `provider` | text | `"google"` or `"outlook"` |
+| `provider_calendar_id` | text | Google: `"primary"` or calendar email. Outlook: calendar ID from MS Graph. |
+| `calendar_name` | text | Display name (e.g., "Work Calendar") |
+| `is_default` | boolean | Whether this is the default calendar for the org |
+| `created_at` | timestamptz | |
 
-### Changes to `integrations` Table
+#### `integrations` table — OAuth tokens
 
-The `integrations` table already exists but needs specific fields for calendar:
+| Column | Type | Description |
+|---|---|---|
+| `id` | uuid PK | |
+| `org_id` | uuid FK → organizations | |
+| `provider` | text | `"google_calendar"`, `"outlook_calendar"`, `"hubspot"` |
+| `status` | text | `"active"`, `"needs_reauth"` |
+| `account_email` | text | The email of the connected account (for display/disambiguation) |
+| `config` | jsonb | `{ access_token, refresh_token, token_expiry, ... }` |
 
+#### `campaigns` table — Calendar linkage
+
+| Column | Type | Description |
+|---|---|---|
+| `calendar_connection_id` | uuid FK → calendar_connections | The calendar this campaign books into. When AI books an appointment for this campaign, the appointment inherits this value. |
+| `default_meeting_duration` | integer | Duration in minutes (default 30). Used by booking functions. |
+| `timezone` | text | IANA timezone (e.g., `"America/Toronto"`). Falls back to org timezone if NULL. |
+| `booking_enabled` | boolean | If false, AI notes the preferred time but doesn't actually create the appointment. Returns a `booking_disabled` response. |
+
+#### `campaign_appointment_schedules` table — Bookable hours
+
+| Column | Type | Description |
+|---|---|---|
+| `campaign_id` | uuid FK → campaigns | |
+| `day_of_week` | integer | 0=Sunday, 1=Monday, ..., 6=Saturday |
+| `start_time` | text | `"9:00 AM"` or `"09:00"` (both formats supported) |
+| `end_time` | text | `"5:00 PM"` or `"17:00"` |
+
+### 9.4 The DB Trigger — `trg_appointment_change`
+
+**Migration:** `20260219000000_phase7_triggers.sql` (original), `20260226100000_fix_appointment_trigger.sql` (refined)
+
+```sql
+CREATE TRIGGER trg_appointment_change
+  AFTER INSERT OR UPDATE OR DELETE ON appointments
+  FOR EACH ROW
+  EXECUTE FUNCTION handle_appointment_change();
 ```
-config (jsonb) should store:
+
+**Behavior of `handle_appointment_change()`:**
+
+| Event | Action sent to sync function |
+|---|---|
+| `INSERT` | `"create"` — creates a new calendar event |
+| `UPDATE` (status becomes `cancelled`) | `"delete"` — deletes the calendar event |
+| `UPDATE` (any other change, e.g. reschedule) | `"update"` — patches the existing calendar event |
+| `DELETE` | `"delete"` — deletes the calendar event |
+
+**Skip condition:** If `calendar_connection_id` is NULL (no external calendar linked), the trigger returns immediately without making any HTTP call.
+
+**Auth:** Reads the service role JWT from Supabase Vault (`vault.decrypted_secrets` where `name = 'service_role_key'`). This is the legacy JWT format (219 chars, starts with `eyJhbG...`), NOT the new hex-format service role key.
+
+**HTTP call:** Uses `pg_net.http_post()` (fire-and-forget async HTTP) to call `sync-appointment-to-calendar` Edge Function with payload:
+```json
+{ "appointment_id": "uuid", "action": "create" | "update" | "delete" }
+```
+
+### 9.5 Edge Functions — Complete Reference
+
+#### `sync-appointment-to-calendar`
+
+**Path:** `supabase/functions/sync-appointment-to-calendar/index.ts`
+**Trigger:** DB trigger `trg_appointment_change` (not called directly by any other function)
+**Auth:** Service role key (from DB trigger via Vault) or N8N webhook secret
+**Deployed with:** `--no-verify-jwt` (auth handled internally)
+
+**What it does:**
+1. Receives `{ appointment_id, action }` from DB trigger
+2. Fetches the appointment row (including `calendar_connection_id`, `calendar_event_id`, `lead_id`, `campaign_id`)
+3. If no `calendar_connection_id` → returns `{ synced: false, reason: "no_calendar_connection" }`
+4. Looks up `calendar_connections` → `integrations` to get OAuth tokens
+5. Calls `getValidAccessToken()` which auto-refreshes expired tokens
+6. Fetches contact details (name, phone, email, company), campaign name, and lead notes for the event description
+7. Executes the calendar API call:
+   - **create**: Creates new event in Google Calendar or Outlook Calendar
+   - **update**: Patches existing event (or creates if `calendar_event_id` is NULL)
+   - **delete**: Deletes the event from the calendar
+8. Updates appointment row with `calendar_event_id`, `calendar_provider`, `calendar_synced_at`, `sync_status`
+
+**Calendar event content:**
+- **Summary:** `{appointment.title}` or `"Appointment with {contact name}"` or `"Appointment — Courtside AI"`
+- **Description:** Rich text with campaign name, contact details (name, phone, email, company), appointment notes, and lead notes
+
+**Google Calendar API:**
+- Create: `POST /calendar/v3/calendars/{calendarId}/events`
+- Update: `PATCH /calendar/v3/calendars/{calendarId}/events/{eventId}`
+- Delete: `DELETE /calendar/v3/calendars/{calendarId}/events/{eventId}`
+
+**Outlook Calendar API (Microsoft Graph):**
+- Create: `POST /v1.0/me/calendars/{calendarId}/events`
+- Update: `PATCH /v1.0/me/events/{eventId}`
+- Delete: `DELETE /v1.0/me/events/{eventId}`
+
+---
+
+#### `agent-check-availability`
+
+**Path:** `supabase/functions/agent-check-availability/index.ts`
+**Trigger:** Retell AI agent (custom tool call during a live phone call)
+**Auth:** Service role JWT (Retell sends this in Authorization header)
+**Deployed with:** `--no-verify-jwt`
+
+**Retell request format:**
+```json
 {
-  "access_token": "...",
-  "refresh_token": "...",
-  "calendar_id": "primary",        // which calendar to read/write
-  "token_expires_at": "...",
-  "provider": "google" | "outlook"
+  "name": "check_availability",
+  "args": { "requested_time_string": "Thursday afternoon" },
+  "call": {
+    "call_id": "uuid",
+    "metadata": { "campaign_id": "...", "org_id": "...", "lead_id": "...", "contact_id": "..." },
+    "retell_llm_dynamic_variables": { "first_name": "John", "campaign_id": "..." }
+  }
 }
 ```
 
-### Changes to `appointments` Table
+**What it does:**
+1. Parses `requested_time_string` using `_shared/date-parser.ts` (chrono-node NLP + custom patterns)
+2. Resolves campaign's timezone, appointment schedules (business hours), and calendar connection
+3. For each search date:
+   - Gets bookable time windows from `campaign_appointment_schedules`
+   - Gets busy periods from Google/Outlook Calendar API (if connected)
+   - Gets existing Courtside appointments from DB
+   - Computes available 30-min slots
+4. Returns response based on parsed confidence:
 
-Already has `google_calendar_event_id`. Should add:
+| Parse confidence | Response pattern |
+|---|---|
+| `"exact"` (e.g., "Thursday at 2pm") | `available: true/false` — yes/no for that exact slot |
+| `"range"` (e.g., "Thursday afternoon") | `available: false, needs_selection: true, alternatives: [...]` |
+| `"day_only"` (e.g., "Friday") | `available: false, needs_selection: true, alternatives: [...]` |
+| `"none_requested"` (e.g., "earliest available") | `available: false, needs_selection: true, alternatives: [...]` |
 
-| Column | Type | Notes |
+**Key design decision (`needs_selection`):** For non-exact queries, ALWAYS returns `available: false` + `needs_selection: true`. This forces the Retell agent to present options and ask the prospect to pick a specific time. Only exact-time queries can return `available: true`, which is the signal for the agent to proceed to booking.
+
+**`speakableResponse` format:**
+- Same-day options use time-only: `"On Thursday, March 5th, I have 12:00 PM, 12:30 PM, or 1:00 PM available. Which works best for you?"`
+- Multi-day options include dates: `"I have Tuesday, March 4th at 10:00 AM, Wednesday at 2:00 PM, or Thursday at 9:30 AM available."`
+
+---
+
+#### `agent-book-appointment`
+
+**Path:** `supabase/functions/agent-book-appointment/index.ts`
+**Trigger:** Retell AI agent (custom tool call after prospect confirms a time)
+**Auth:** Service role JWT
+**Deployed with:** `--no-verify-jwt`
+
+**Retell request format:**
+```json
+{
+  "name": "book_appointment",
+  "args": { "scheduled_at": "2026-02-28T14:00:00-05:00", "duration_minutes": 30, "notes": "..." },
+  "call": {
+    "call_id": "uuid",
+    "metadata": { "campaign_id": "...", "org_id": "...", "lead_id": "...", "contact_id": "..." }
+  }
+}
+```
+
+**What it does:**
+1. Validates required fields (campaign_id, lead_id, contact_id, org_id, scheduled_at)
+2. Checks `campaign.booking_enabled` — if false, returns `{ booked: false, reason: "booking_disabled" }` with a speakable message noting the preferred time
+3. Re-verifies availability (race condition check — slot may have been taken between check and book)
+4. **INSERTs appointment into DB** with:
+   - `calendar_connection_id` from campaign (inherited)
+   - `sync_status: "pending"` if calendar connected, `"not_applicable"` if not
+   - `status: "scheduled"`
+   - `call_id` (only if valid UUID — Retell test calls use non-UUID IDs)
+5. Updates lead status to `appt_set`
+6. Fires N8N webhook (`/appointment-created`) for downstream automation
+7. Returns `{ booked: true, appointment_id, time, speakableResponse }`
+
+**Calendar sync:** The INSERT into `appointments` automatically fires `trg_appointment_change` → `sync-appointment-to-calendar`. **No inline calendar sync in this function.**
+
+---
+
+#### `agent-reschedule-appointment`
+
+**Path:** `supabase/functions/agent-reschedule-appointment/index.ts`
+**Trigger:** Retell AI agent (custom tool call)
+**Auth:** Service role JWT
+**Deployed with:** `--no-verify-jwt`
+
+**What it does:**
+1. Fetches existing appointment, validates it exists and isn't cancelled
+2. Re-verifies the new time slot is available
+3. **UPDATEs appointment** with new `scheduled_at`
+4. Fires N8N webhook (`/appointment-rescheduled`)
+5. Returns old time and new time in response
+
+**Calendar sync:** The UPDATE fires `trg_appointment_change` → `sync-appointment-to-calendar` with action `"update"`. **No inline calendar sync in this function.**
+
+### 9.6 OAuth Token Management
+
+**Module:** `supabase/functions/_shared/oauth.ts`
+
+`getValidAccessToken(integrationId, provider)`:
+1. Reads `integrations.config` for the access/refresh tokens
+2. If `token_expiry` is >5 min in the future → returns existing access token
+3. If expired → refreshes via provider's token endpoint:
+   - Google: `https://oauth2.googleapis.com/token`
+   - Outlook: `https://login.microsoftonline.com/common/oauth2/v2.0/token`
+4. Updates `integrations.config` with new tokens
+5. If refresh fails → marks integration `status: "needs_reauth"`, returns null
+
+**Required env vars (on Supabase Edge Functions):**
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+- `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`
+
+### 9.7 Date/Time Parsing — `_shared/date-parser.ts`
+
+The AI agent receives natural language time requests from prospects. The date parser converts these to structured data.
+
+**Key technical detail:** chrono-node is given a timezone-shifted reference date via `getReferenceDate()`. This means chrono's output Date object has **campaign-local time in its UTC fields**. Always extract hours/minutes using `getUTCHours()`/`getUTCMinutes()` to avoid double-applying the timezone offset. See Bug #9 in `docs/bug-debugging.md`.
+
+**Parse classifications:**
+| Input example | Confidence | Result |
 |---|---|---|
-| `calendar_provider` | text | "google", "outlook", or null (no sync) |
-| `calendar_event_id` | text | Renamed from `google_calendar_event_id` to be provider-agnostic |
-| `calendar_synced_at` | timestamptz | When the calendar was last synced |
+| `"Thursday at 2pm"` | `exact` | date + time + ISO |
+| `"Thursday afternoon"` | `range` | date + rangeStart/rangeEnd (12:00–17:00) |
+| `"Friday"` | `day_only` | date only |
+| `"after 4pm"` | `range` | date + rangeStart (16:00) to 23:59 |
+| `"next week"` | `range` | Mon–Fri date range |
+| `"earliest available"` / `""` | `none_requested` | next 14 days |
+
+### 9.8 Speakable Response Generation — `_shared/speech.ts`
+
+The `generateSpeakableResponse()` function creates natural conversational text for the Retell voice agent to speak. Key behaviors:
+
+- **`needs_selection: true`** (range/day/earliest queries): Presents options naturally with "X, Y, or Z" phrasing. Same-day options use time-only format.
+- **`available: true`** (exact match): Confirms the specific time is available.
+- **`available: false`** (exact match, no alternatives): Apologizes and suggests checking other times.
+- All times formatted in 12-hour with AM/PM for natural speech.
+
+### 9.9 N8N Webhook Integration
+
+Both `agent-book-appointment` and `agent-reschedule-appointment` fire webhooks to N8N for downstream automation:
+
+| Event | Webhook path | Payload |
+|---|---|---|
+| Appointment created | `{N8N_WEBHOOK_BASE_URL}/appointment-created` | appointment_id, org_id, lead_id, contact_id, campaign_id, source, call_metadata |
+| Appointment rescheduled | `{N8N_WEBHOOK_BASE_URL}/appointment-rescheduled` | appointment_id, org_id, lead_id, contact_id, campaign_id, old/new times, reason, source, call_metadata |
+
+These webhooks trigger N8N workflows for: confirmation SMS/email to lead, notification to broker, etc. The N8N webhook is fire-and-forget (non-blocking, errors logged but don't fail the response).
+
+### 9.10 End-to-End Flow: AI Books an Appointment
+
+```
+1. Prospect on call says: "How about Thursday afternoon?"
+   │
+2. Retell Agent → agent-check-availability
+   │  args: { requested_time_string: "Thursday afternoon" }
+   │  metadata: { campaign_id, org_id, lead_id, contact_id }
+   │
+3. Edge Function:
+   │  - date-parser: "Thursday afternoon" → range, 12:00–17:00
+   │  - Gets campaign business hours (campaign_appointment_schedules)
+   │  - Gets Google/Outlook busy periods (via calendar API)
+   │  - Gets existing DB appointments
+   │  - Computes available 30-min slots
+   │  - Returns: { available: false, needs_selection: true,
+   │              alternatives: [12:00, 12:30, 1:00],
+   │              speakableResponse: "On Thursday, I have 12, 12:30, or 1 PM..." }
+   │
+4. Retell Agent speaks: "On Thursday, I have 12, 12:30, or 1 PM available.
+   │                      Which works best for you?"
+   │
+5. Prospect says: "1 PM works"
+   │
+6. Retell Agent → agent-check-availability (exact confirmation)
+   │  args: { requested_time_string: "Thursday at 1pm" }
+   │  Returns: { available: true, ... }
+   │
+7. Retell Agent → agent-book-appointment
+   │  args: { scheduled_at: "2026-03-05T13:00:00-05:00" }
+   │
+8. Edge Function:
+   │  - Re-verifies slot is still available (race condition check)
+   │  - INSERTs into appointments table
+   │  - Updates lead status → "appt_set"
+   │  - Fires N8N webhook (appointment-created)
+   │  - Returns: { booked: true, speakableResponse: "Perfect! I've booked
+   │              your appointment for Thursday, March 5th at 1:00 PM..." }
+   │
+9. DB trigger fires: trg_appointment_change (INSERT)
+   │  - Reads service_role_key from Vault
+   │  - Calls sync-appointment-to-calendar with action: "create"
+   │
+10. sync-appointment-to-calendar:
+    - Fetches appointment → calendar_connection → integration
+    - Refreshes OAuth token if needed
+    - Creates event in Google/Outlook with rich description
+    - Updates appointment: calendar_event_id, sync_status: "synced"
+```
+
+### 9.11 Auth Patterns for External Callers
+
+Edge Functions called by external services (Retell, DB triggers, N8N) are deployed with `--no-verify-jwt` and handle auth internally:
+
+| Caller | Auth method | How it works |
+|---|---|---|
+| **Retell AI** | Service role JWT | Retell is configured with the legacy JWT (219 chars, from Vault). `verifyServiceAuth()` decodes the JWT and checks `payload.role === "service_role"`. |
+| **DB trigger** | Service role JWT | `handle_appointment_change()` reads the JWT from `vault.decrypted_secrets`. |
+| **N8N** | Webhook secret or service key | `sync-appointment-to-calendar` accepts either `N8N_WEBHOOK_SECRET` or the service role key. |
+| **Dashboard** | Supabase user JWT | Functions called from the frontend use standard Supabase auth. |
+
+**Important:** The `SUPABASE_SERVICE_ROLE_KEY` env var in Edge Functions is the new hex format (`sb_secret_...`, 41 chars). The Vault `service_role_key` is the legacy JWT (219 chars). The `verifyServiceAuth()` function in agent functions handles both: direct string comparison with the env var, AND JWT decode to check `role === "service_role"`.
+
+### 9.12 Deployment Notes
+
+All agent Edge Functions and sync functions must be deployed with `--no-verify-jwt`:
+```bash
+supabase functions deploy agent-check-availability --no-verify-jwt
+supabase functions deploy agent-book-appointment --no-verify-jwt
+supabase functions deploy agent-reschedule-appointment --no-verify-jwt
+supabase functions deploy sync-appointment-to-calendar --no-verify-jwt
+```
+
+If deployed without `--no-verify-jwt`, the Supabase API gateway will reject requests from Retell and DB triggers with 401 before the function code even runs.
 
 ---
 
