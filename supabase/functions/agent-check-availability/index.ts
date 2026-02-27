@@ -57,8 +57,16 @@ function pad(n: number): string {
 }
 
 function parseTimeToMinutes(time: string): number {
-  const [h, m] = time.split(":").map(Number);
-  return h * 60 + m;
+  // Handle both "HH:MM" (24h) and "H:MM AM/PM" (12h) formats
+  const trimmed = time.trim();
+  const isPM = /pm/i.test(trimmed);
+  const isAM = /am/i.test(trimmed);
+  const cleaned = trimmed.replace(/\s*(am|pm)\s*/i, "");
+  const [h, m] = cleaned.split(":").map(Number);
+  let hours = h;
+  if (isPM && hours < 12) hours += 12;
+  if (isAM && hours === 12) hours = 0;
+  return hours * 60 + (m || 0);
 }
 
 function minutesToTime(totalMinutes: number): string {
@@ -241,12 +249,37 @@ function buildAlternative(
 
 // ── Service auth check ─────────────────────────────────────────────
 
+function decodeBase64Url(str: string): string {
+  // Clean: trim whitespace, remove newlines, convert base64url → base64
+  let b64 = str.trim().replace(/\s/g, "").replace(/-/g, "+").replace(/_/g, "/");
+  // Add padding
+  while (b64.length % 4) b64 += "=";
+  // Decode using Uint8Array for robustness
+  const binary = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  return new TextDecoder().decode(binary);
+}
+
 function verifyServiceAuth(req: Request): boolean {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) return false;
-  const token = authHeader.replace("Bearer ", "");
+
+  // Strip Bearer prefix, trim whitespace/newlines
+  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+
+  // Direct comparison
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  return token === serviceKey;
+  if (token === serviceKey) return true;
+
+  // Decode JWT and check role claim
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return false;
+    const decoded = decodeBase64Url(parts[1]);
+    const payload = JSON.parse(decoded);
+    return payload.role === "service_role";
+  } catch {
+    return false;
+  }
 }
 
 // ── Main handler ───────────────────────────────────────────────────
@@ -267,23 +300,33 @@ serve(async (req) => {
     }
 
     const elapsed = startTimer();
-    const body = await req.json();
-    const {
-      campaign_id,
-      org_id,
-      requested_time_string,
-      lead_id,
-      contact_id,
-      timezone: timezoneOverride,
-      duration_minutes: durationOverride,
-      call_metadata,
-    } = body;
+    const rawBody = await req.json();
+
+    // Retell sends { name, args, call } — extract accordingly
+    // Also support flat body for direct/testing calls
+    const isRetell = rawBody.args !== undefined || rawBody.call !== undefined;
+    const args = isRetell ? (rawBody.args ?? {}) : rawBody;
+    const callObj = rawBody.call ?? {};
+    const meta = callObj.metadata ?? {};
+    const dynVars = callObj.retell_llm_dynamic_variables ?? {};
+
+    // Tool parameters from args
+    const requested_time_string = args.requested_time_string;
+    const timezoneOverride = args.timezone;
+    const durationOverride = args.duration_minutes;
+
+    // Context from call metadata/dynamic vars (set when creating the Retell call)
+    const campaign_id = args.campaign_id || meta.campaign_id || dynVars.campaign_id;
+    const org_id = args.org_id || meta.org_id || dynVars.org_id;
+    const lead_id = args.lead_id || meta.lead_id || dynVars.lead_id;
+    const contact_id = args.contact_id || meta.contact_id || dynVars.contact_id;
+    const call_metadata = isRetell ? { call_id: callObj.call_id } : rawBody.call_metadata;
 
     if (!campaign_id) {
-      return errorResponse("campaign_id is required", 400);
+      return errorResponse("campaign_id is required — pass it in Retell call metadata when creating the call", 400);
     }
     if (!org_id) {
-      return errorResponse("org_id is required", 400);
+      return errorResponse("org_id is required — pass it in Retell call metadata when creating the call", 400);
     }
 
     const logInput = { campaign_id, org_id, requested_time_string, lead_id, contact_id };

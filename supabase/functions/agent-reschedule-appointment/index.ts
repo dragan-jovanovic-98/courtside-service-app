@@ -12,12 +12,30 @@ import { logToolCall, startTimer } from "../_shared/tool-logger.ts";
 
 // ── Helpers ────────────────────────────────────────────────────────
 
+function decodeBase64Url(str: string): string {
+  let b64 = str.trim().replace(/\s/g, "").replace(/-/g, "+").replace(/_/g, "/");
+  while (b64.length % 4) b64 += "=";
+  const binary = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  return new TextDecoder().decode(binary);
+}
+
 function verifyServiceAuth(req: Request): boolean {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) return false;
-  const token = authHeader.replace("Bearer ", "");
+  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  return token === serviceKey;
+  if (token === serviceKey) return true;
+
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return false;
+    const decoded = decodeBase64Url(parts[1]);
+    const payload = JSON.parse(decoded);
+    return payload.role === "service_role";
+  } catch {
+    return false;
+  }
 }
 
 function isValidISO(str: string): boolean {
@@ -48,23 +66,32 @@ serve(async (req) => {
     }
 
     const elapsed = startTimer();
-    const body = await req.json();
-    const {
-      appointment_id,
-      campaign_id,
-      org_id,
-      new_scheduled_at,
-      reason,
-      call_metadata,
-    } = body;
+    const rawBody = await req.json();
+
+    // Retell sends { name, args, call } — extract accordingly
+    const isRetell = rawBody.args !== undefined || rawBody.call !== undefined;
+    const args = isRetell ? (rawBody.args ?? {}) : rawBody;
+    const callObj = rawBody.call ?? {};
+    const meta = callObj.metadata ?? {};
+    const dynVars = callObj.retell_llm_dynamic_variables ?? {};
+
+    // Tool parameters from args
+    const appointment_id = args.appointment_id;
+    const new_scheduled_at = args.new_scheduled_at;
+    const reason = args.reason;
+
+    // Context from call metadata/dynamic vars
+    const campaign_id = args.campaign_id || meta.campaign_id || dynVars.campaign_id;
+    const org_id = args.org_id || meta.org_id || dynVars.org_id;
+    const call_metadata = isRetell ? { call_id: callObj.call_id } : rawBody.call_metadata;
 
     const logInput = { appointment_id, campaign_id, org_id, new_scheduled_at };
     const callId = call_metadata?.call_id ?? null;
 
     // ── Validate input ──
     if (!appointment_id) return errorResponse("appointment_id is required", 400);
-    if (!campaign_id) return errorResponse("campaign_id is required", 400);
-    if (!org_id) return errorResponse("org_id is required", 400);
+    if (!campaign_id) return errorResponse("campaign_id is required — pass it in Retell call metadata", 400);
+    if (!org_id) return errorResponse("org_id is required — pass it in Retell call metadata", 400);
     if (!new_scheduled_at) return errorResponse("new_scheduled_at is required", 400);
 
     if (!isValidISO(new_scheduled_at)) {
