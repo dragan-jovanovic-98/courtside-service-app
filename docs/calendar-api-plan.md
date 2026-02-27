@@ -1203,15 +1203,21 @@ Organized as a Notion wiki section:
 - Outlook `getBusyPeriods` pagination loop also uses retry per page
 - Agent endpoints gracefully fall back to Courtside-only availability when calendar API fails
 
-### Phase E: Documentation (Days 8-9)
+### Phase E: Documentation (Days 8-9) — COMPLETED 2026-02-27
 **Goal:** Complete API docs
 
-| Task | Format | Complexity |
+| Task | Format | Status |
 |---|---|---|
-| Write OpenAPI spec | `docs/api/openapi.yaml` | Medium |
-| Create Notion documentation pages | Notion wiki | Medium |
-| Write integration setup guide (Outlook) | Notion | Low |
-| Write NLP input reference | Notion | Low |
+| Write API reference | `docs/api/calendar-api.md` | Done — comprehensive markdown doc |
+| Create Notion documentation pages | Notion wiki | Skipped — covered in markdown |
+| Write integration setup guide (Outlook) | Included in API ref Section 6 | Done |
+| Write NLP input reference | Included in API ref Section 5 | Done |
+
+**Notes:**
+- Created `docs/api/calendar-api.md` instead of OpenAPI YAML — markdown is more readable and maintainable for this project.
+- All 7 endpoints fully documented with request/response schemas, examples, and error cases.
+- Outlook integration guide, NLP parsing reference, and shared types all included in a single doc.
+- Notion pages skipped per user instruction.
 
 ### Phase F: Analytics & Monitoring (Day 10)
 **Goal:** Observability
