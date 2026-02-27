@@ -9,12 +9,23 @@ import {
   Calendar,
   XCircle,
   X,
+  Plus,
+  Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { SectionLabel } from "@/components/ui/section-label";
 import { cn } from "@/lib/utils";
 import { callEdgeFunction } from "@/lib/supabase/edge-functions";
 import type { CalendarAppointmentData } from "@/types";
+
+type CalendarSource = {
+  id: string;
+  name: string;
+  provider: string;
+  color: string;
+};
 
 const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -27,6 +38,158 @@ function campaignColor(campaign: string): string {
   return colors[hash % colors.length];
 }
 
+// ---------------------------------------------------------------------------
+// New Appointment Modal
+// ---------------------------------------------------------------------------
+function NewAppointmentModal({
+  initialDate,
+  calendarSources,
+  onClose,
+  onSuccess,
+}: {
+  initialDate: string;
+  calendarSources: CalendarSource[];
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [dateTime, setDateTime] = useState(initialDate);
+  const [duration, setDuration] = useState(30);
+  const [notes, setNotes] = useState("");
+  const [calendarConnectionId, setCalendarConnectionId] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleCreate = async () => {
+    if (!title.trim()) {
+      setError("Title is required");
+      return;
+    }
+    if (!dateTime) {
+      setError("Date & time are required");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+
+    const { error: err } = await callEdgeFunction("create-appointment", {
+      scheduled_at: new Date(dateTime).toISOString(),
+      duration_minutes: duration,
+      title: title.trim(),
+      notes: notes.trim() || null,
+      is_manual: true,
+      calendar_connection_id: calendarConnectionId || null,
+    });
+
+    setLoading(false);
+    if (err) {
+      setError(err);
+    } else {
+      onSuccess();
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-xl border border-border-default bg-[#141820] p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-text-primary">New Appointment</h2>
+          <button onClick={onClose} className="text-text-dim hover:text-text-muted">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-text-muted">Title *</Label>
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Meeting with client"
+              className="border-border-default bg-surface-input text-text-primary placeholder:text-text-dim"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-text-muted">Date & Time *</Label>
+              <input
+                type="datetime-local"
+                value={dateTime}
+                onChange={(e) => setDateTime(e.target.value)}
+                className="w-full rounded-lg border border-border-default bg-surface-input px-3 py-2 text-sm text-text-primary [color-scheme:dark]"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-text-muted">Duration</Label>
+              <select
+                value={duration}
+                onChange={(e) => setDuration(Number(e.target.value))}
+                className="w-full appearance-none rounded-lg border border-border-default bg-surface-input px-3 py-2 text-sm text-text-primary outline-none"
+              >
+                <option value={15}>15 min</option>
+                <option value={30}>30 min</option>
+                <option value={45}>45 min</option>
+                <option value={60}>1 hour</option>
+                <option value={90}>1.5 hours</option>
+                <option value={120}>2 hours</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-text-muted">Notes</Label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Optional notes..."
+              rows={2}
+              className="w-full rounded-lg border border-border-default bg-surface-input px-3 py-2 text-sm text-text-primary placeholder:text-text-dim outline-none resize-none"
+            />
+          </div>
+
+          {calendarSources.length > 0 && (
+            <div className="space-y-1.5">
+              <Label className="text-text-muted">Push to Calendar</Label>
+              <select
+                value={calendarConnectionId}
+                onChange={(e) => setCalendarConnectionId(e.target.value)}
+                className="w-full appearance-none rounded-lg border border-border-default bg-surface-input px-3 py-2 text-sm text-text-primary outline-none"
+              >
+                <option value="">None (Courtside only)</option>
+                {calendarSources.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.provider === "google" ? "Google" : "Outlook"})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {error && <p className="text-sm text-red-light">{error}</p>}
+
+          <div className="flex gap-2 pt-2">
+            <Button variant="ghost" className="flex-1" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 gap-1.5 bg-emerald-dark text-white hover:bg-emerald-dark/90"
+              onClick={handleCreate}
+              disabled={loading}
+            >
+              {loading ? "Creating…" : (
+                <>
+                  <Calendar size={14} /> Create
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function CalendarClient({
   appointmentsByDay,
   stats,
@@ -35,6 +198,7 @@ export function CalendarClient({
   daysInMonth,
   firstDayOfWeek,
   initialAppointmentId = null,
+  calendarSources = [],
 }: {
   appointmentsByDay: Record<number, CalendarAppointmentData[]>;
   stats: {
@@ -48,6 +212,7 @@ export function CalendarClient({
   daysInMonth: number;
   firstDayOfWeek: number; // 0=Sun, 1=Mon, etc
   initialAppointmentId?: string | null;
+  calendarSources?: CalendarSource[];
 }) {
   const router = useRouter();
 
@@ -71,6 +236,8 @@ export function CalendarClient({
   const [actionBusy, setActionBusy] = useState(false);
   const [rescheduleMode, setRescheduleMode] = useState(false);
   const [rescheduleValue, setRescheduleValue] = useState("");
+  const [showNewAppt, setShowNewAppt] = useState(false);
+  const [newApptDate, setNewApptDate] = useState("");
 
   const selAppt: CalendarAppointmentData | null = selected
     ? (appointmentsByDay[selected.day] || [])[selected.idx] ?? null
@@ -86,6 +253,19 @@ export function CalendarClient({
 
   return (
     <div className="flex flex-col gap-4 lg:flex-row lg:gap-0">
+      {/* New Appointment Modal */}
+      {showNewAppt && (
+        <NewAppointmentModal
+          initialDate={newApptDate}
+          calendarSources={calendarSources}
+          onClose={() => setShowNewAppt(false)}
+          onSuccess={() => {
+            setShowNewAppt(false);
+            router.refresh();
+          }}
+        />
+      )}
+
       <div className="min-w-0 flex-1">
         {/* Header */}
         <div className="mb-4 flex items-start justify-between">
@@ -93,6 +273,16 @@ export function CalendarClient({
             <h1 className="text-2xl font-bold text-text-primary">Calendar</h1>
             <p className="mt-1 text-[13px] text-text-muted">{monthLabel}</p>
           </div>
+          <Button
+            className="gap-1.5 bg-emerald-dark text-white hover:bg-emerald-dark/90"
+            onClick={() => {
+              const now = new Date();
+              setNewApptDate(now.toISOString().slice(0, 16));
+              setShowNewAppt(true);
+            }}
+          >
+            <Plus size={14} /> New Appointment
+          </Button>
         </div>
 
         {/* Stats */}

@@ -1313,4 +1313,35 @@ courtside-ai/
 
 ---
 
+---
+
+## Phase 11: Calendar & CRM Integrations [DEDICATED PHASE]
+
+*Full spec in `docs/courtside-integrations-plan.md`. Summary below.*
+
+**Depends on:** Phase 1 (DB schema), Phase 2 (Auth), Phase 3 (App shell). Can run after or in parallel with Phases 4–10.
+
+### Sub-phases:
+
+| Phase | What | Sequential/Parallel | Complexity |
+|---|---|---|---|
+| 11.0 | Database migration (new tables + column additions) | SEQUENTIAL — blocker | L |
+| 11.1 | OAuth infrastructure (Google, Outlook, HubSpot) | SEQUENTIAL — blocker | XL |
+| 11.2 | Calendar backend (availability, sync, event fetching) | PARALLEL | XL |
+| 11.3 | CRM backend (import, activity pushback) | PARALLEL with 11.2 | XL |
+| 11.4 | Settings → Integrations UI redesign | PARALLEL with 11.2/11.3 | L |
+| 11.5 | Campaign wizard amendments (calendar + CRM import) | PARALLEL | L |
+| 11.6 | Calendar page amendments (external events, manual appointments) | PARALLEL | L |
+| 11.7 | Leads page & lead detail amendments (CRM badges, import) | PARALLEL | M |
+| 11.8 | Integration testing (end-to-end flows) | SEQUENTIAL — last | L |
+
+### Key decisions:
+- **Calendars:** Org-level ownership. Multiple accounts + sub-calendars. Set per campaign. External OR Courtside for availability. All appointments always in Courtside DB.
+- **CRM:** One CRM at a time. HubSpot first. Manual import only. Real-time activity pushback for CRM-imported leads. Proper HubSpot engagement types.
+- **See full spec for:** data model changes, API design, UI flows, rules & constraints.
+
+**Estimated total effort:** ~6-8 weeks with 2-3 parallel workstreams.
+
+---
+
 *This plan should be executed phase by phase, with the parallelization strategy determining how many sub-agents work simultaneously at each stage. The data model document is the single source of truth for all schema and field references.*

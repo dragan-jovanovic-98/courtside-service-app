@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Check, Plus, X, Upload } from "lucide-react";
+import { ChevronLeft, Check, Plus, X, Upload, Users, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ColoredBadge } from "@/components/ui/colored-badge";
@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { callEdgeFunction } from "@/lib/supabase/edge-functions";
 
 type AgentOption = { id: string; name: string; tag: string; description: string };
+type CalendarOption = { id: string; label: string };
 type ScheduleDay = { day: string; on: boolean; slots: string[][] };
 
 const STEPS = ["Select Agent", "Add Leads", "Schedule", "Review"];
@@ -25,7 +26,25 @@ const makeDefaultSchedule = (): ScheduleDay[] => [
   { day: "Sunday", on: false, slots: [] },
 ];
 
-export function CampaignWizard({ agents }: { agents: AgentOption[] }) {
+const makeDefaultApptSchedule = (): ScheduleDay[] => [
+  { day: "Monday", on: true, slots: [["9:00 AM", "5:00 PM"]] },
+  { day: "Tuesday", on: true, slots: [["9:00 AM", "5:00 PM"]] },
+  { day: "Wednesday", on: true, slots: [["9:00 AM", "5:00 PM"]] },
+  { day: "Thursday", on: true, slots: [["9:00 AM", "5:00 PM"]] },
+  { day: "Friday", on: true, slots: [["9:00 AM", "5:00 PM"]] },
+  { day: "Saturday", on: false, slots: [] },
+  { day: "Sunday", on: false, slots: [] },
+];
+
+export function CampaignWizard({
+  agents,
+  calendarOptions = [],
+  hasCrm = false,
+}: {
+  agents: AgentOption[];
+  calendarOptions?: CalendarOption[];
+  hasCrm?: boolean;
+}) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState(1);
@@ -36,6 +55,8 @@ export function CampaignWizard({ agents }: { agents: AgentOption[] }) {
   const [csvText, setCsvText] = useState<string | null>(null);
   const [csvFileName, setCsvFileName] = useState<string | null>(null);
   const [csvRowCount, setCsvRowCount] = useState(0);
+  const [crmImportCount, setCrmImportCount] = useState(0);
+  const [crmImporting, setCrmImporting] = useState(false);
 
   // Step 3: Schedule & rules
   const [schedule, setSchedule] = useState<ScheduleDay[]>(makeDefaultSchedule);
@@ -43,6 +64,10 @@ export function CampaignWizard({ agents }: { agents: AgentOption[] }) {
   const [maxRetries, setMaxRetries] = useState(2);
   const [timezone, setTimezone] = useState("America/Toronto");
   const [endDate, setEndDate] = useState("");
+
+  // Step 3: Appointment calendar + availability
+  const [calendarConnectionId, setCalendarConnectionId] = useState<string>("");
+  const [apptSchedule, setApptSchedule] = useState<ScheduleDay[]>(makeDefaultApptSchedule);
 
   // Submission state
   const [submitting, setSubmitting] = useState(false);
@@ -93,7 +118,32 @@ export function CampaignWizard({ agents }: { agents: AgentOption[] }) {
     );
   };
 
+  const toggleApptDay = (dayIdx: number) => {
+    setApptSchedule((prev) =>
+      prev.map((d, i) =>
+        i === dayIdx ? { ...d, on: !d.on, slots: d.on ? [] : [["9:00 AM", "5:00 PM"]] } : d
+      )
+    );
+  };
+
+  const removeApptSlot = (dayIdx: number, slotIdx: number) => {
+    setApptSchedule((prev) =>
+      prev.map((d, i) =>
+        i === dayIdx ? { ...d, slots: d.slots.filter((_, si) => si !== slotIdx) } : d
+      )
+    );
+  };
+
+  const addApptSlot = (dayIdx: number) => {
+    setApptSchedule((prev) =>
+      prev.map((d, i) =>
+        i === dayIdx ? { ...d, slots: [...d.slots, ["9:00 AM", "5:00 PM"]] } : d
+      )
+    );
+  };
+
   const activeDays = schedule.filter((d) => d.on).map((d) => d.day.slice(0, 3)).join(", ");
+  const apptActiveDays = apptSchedule.filter((d) => d.on).map((d) => d.day.slice(0, 3)).join(", ");
 
   const handleSubmit = async (activate: boolean) => {
     if (!agentId || !campaignName.trim()) return;
@@ -111,6 +161,14 @@ export function CampaignWizard({ agents }: { agents: AgentOption[] }) {
           : [],
       }));
 
+      const apptSchedulesPayload = apptSchedule.map((d) => ({
+        day_of_week: dayNames.indexOf(d.day),
+        enabled: d.on,
+        slots: d.on
+          ? d.slots.map(([start, end]) => ({ start, end }))
+          : [],
+      }));
+
       const { data: campaign, error: createErr } = await callEdgeFunction<{ id: string }>(
         "create-campaign",
         {
@@ -121,6 +179,8 @@ export function CampaignWizard({ agents }: { agents: AgentOption[] }) {
           timezone,
           end_date: endDate || null,
           schedules: schedulesPayload,
+          calendar_connection_id: calendarConnectionId || null,
+          appointment_schedules: apptSchedulesPayload,
         }
       );
 
@@ -248,7 +308,7 @@ export function CampaignWizard({ agents }: { agents: AgentOption[] }) {
             placeholder="Campaign name..."
             className="mb-3 border-border-default bg-surface-input text-text-primary placeholder:text-text-dim"
           />
-          <div className="mb-3 grid grid-cols-2 gap-2.5">
+          <div className={cn("mb-3 grid gap-2.5", hasCrm ? "grid-cols-3" : "grid-cols-2")}>
             {/* CSV Upload */}
             <div
               onClick={() => fileInputRef.current?.click()}
@@ -279,6 +339,43 @@ export function CampaignWizard({ agents }: { agents: AgentOption[] }) {
                 }}
               />
             </div>
+            {/* Import from CRM */}
+            {hasCrm && (
+              <button
+                onClick={async () => {
+                  setCrmImporting(true);
+                  try {
+                    const { data, error: err } = await callEdgeFunction<{ imported: number }>(
+                      "crm-import-contacts",
+                      { preview_only: false }
+                    );
+                    if (err) {
+                      setError(`CRM import failed: ${err}`);
+                    } else {
+                      setCrmImportCount(data?.imported ?? 0);
+                    }
+                  } catch {
+                    setError("CRM import failed");
+                  }
+                  setCrmImporting(false);
+                }}
+                disabled={crmImporting}
+                className={cn(
+                  "rounded-xl border-2 border-dashed p-8 text-center transition-colors hover:border-text-dim",
+                  crmImportCount > 0
+                    ? "border-[rgba(96,165,250,0.4)] bg-blue-bg"
+                    : "border-border-default"
+                )}
+              >
+                <Users size={16} className="mx-auto mb-1.5 text-text-dim" />
+                <div className="text-[13px] font-semibold text-text-muted">
+                  {crmImporting ? "Importing..." : crmImportCount > 0 ? "CRM Imported" : "Import from CRM"}
+                </div>
+                <div className="mt-1 text-[11px] text-text-dim">
+                  {crmImportCount > 0 ? `${crmImportCount} contacts` : "HubSpot contacts"}
+                </div>
+              </button>
+            )}
             {/* Existing Leads placeholder */}
             <div className="cursor-not-allowed rounded-xl border-2 border-dashed border-border-default p-8 text-center opacity-50">
               <div className="text-[13px] font-semibold text-text-muted">Existing Leads</div>
@@ -374,6 +471,82 @@ export function CampaignWizard({ agents }: { agents: AgentOption[] }) {
             </div>
           </div>
 
+          {/* Appointment Calendar */}
+          <div className="mb-2.5 rounded-xl border border-border-default bg-surface-card p-4">
+            <SectionLabel>Appointment Calendar</SectionLabel>
+            <p className="mb-2 text-[11px] text-text-dim">
+              Select which calendar to check for availability and book appointments to.
+            </p>
+            <select
+              value={calendarConnectionId}
+              onChange={(e) => setCalendarConnectionId(e.target.value)}
+              className="w-full appearance-none rounded-lg border border-border-default bg-surface-input px-3 py-2 text-sm text-text-primary outline-none"
+            >
+              <option value="">Courtside Calendar (default)</option>
+              {calendarOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Appointment Availability */}
+          <div className="mb-2.5 rounded-xl border border-border-default bg-surface-card p-4">
+            <SectionLabel>Appointment Availability</SectionLabel>
+            <p className="mb-2 text-[11px] text-text-dim">
+              Set the hours when the AI can offer appointment slots to leads.
+            </p>
+            <div className="flex flex-col gap-1">
+              {apptSchedule.map((day, dayIdx) => (
+                <div key={day.day} className="flex items-center gap-2.5 border-b border-border-light py-1.5">
+                  <div
+                    onClick={() => toggleApptDay(dayIdx)}
+                    className={cn(
+                      "relative h-[18px] w-[34px] shrink-0 cursor-pointer rounded-full",
+                      day.on ? "bg-emerald-dark" : "bg-[rgba(255,255,255,0.08)]"
+                    )}
+                  >
+                    <div
+                      className="absolute top-0.5 size-3.5 rounded-full bg-white transition-[left]"
+                      style={{ left: day.on ? 18 : 2 }}
+                    />
+                  </div>
+                  <span className={cn("w-20 shrink-0 text-xs font-semibold", day.on ? "text-text-primary" : "text-text-dim")}>
+                    {day.day}
+                  </span>
+                  {day.on ? (
+                    <div className="flex flex-1 flex-wrap items-center gap-1.5">
+                      {day.slots.map((s, si) => (
+                        <div key={si} className="flex items-center gap-1 rounded-md border border-border-light bg-surface-input px-2 py-[3px]">
+                          <span className="text-[11px] tabular-nums text-text-primary">{s[0]}</span>
+                          <span className="text-[10px] text-text-dim">→</span>
+                          <span className="text-[11px] tabular-nums text-text-primary">{s[1]}</span>
+                          {day.slots.length > 1 && (
+                            <button
+                              onClick={() => removeApptSlot(dayIdx, si)}
+                              className="ml-0.5 flex text-text-dim hover:text-text-muted"
+                            >
+                              <X size={10} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => addApptSlot(dayIdx)}
+                        className="flex items-center gap-0.5 rounded-md border border-dashed border-border-default px-2 py-[3px] text-[10px] text-text-dim hover:text-text-muted"
+                      >
+                        <Plus size={9} /> Add slot
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="text-[11px] italic text-text-faint">Off</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
           {/* Rules */}
           <div className="mb-2.5 grid grid-cols-4 gap-2">
             <div className="rounded-xl border border-border-default bg-surface-card p-3">
@@ -444,12 +617,14 @@ export function CampaignWizard({ agents }: { agents: AgentOption[] }) {
               {([
                 ["Campaign", campaignName || "—"],
                 ["Agent", agents.find((a) => a.id === agentId)?.name || "—"],
-                ["Leads", csvRowCount > 0 ? String(csvRowCount) : "None"],
+                ["Leads", (csvRowCount > 0 ? `${csvRowCount} CSV` : "") + (crmImportCount > 0 ? `${csvRowCount > 0 ? " + " : ""}${crmImportCount} CRM` : "") || "None"],
                 ["Schedule", activeDays || "None"],
                 ["Limit", `${dailyLimit}/day`],
                 ["Retries", `${maxRetries} per lead`],
                 ["Timezone", timezone.split("/")[1]?.replace("_", " ") ?? timezone],
                 ["End Date", endDate || "None"],
+                ["Appt Calendar", calendarConnectionId ? calendarOptions.find((c) => c.id === calendarConnectionId)?.label ?? "External" : "Courtside"],
+                ["Appt Hours", apptActiveDays || "None"],
               ] as const).map(([label, val]) => (
                 <div key={label}>
                   <span className="block text-[11px] text-text-dim">{label}</span>

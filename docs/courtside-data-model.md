@@ -58,8 +58,9 @@ These updates refine the original decisions based on implementation experience:
 
 | Feature | Status | Notes |
 |---|---|---|
-| Google Calendar OAuth + API | Prep architecture now, implement later | Edge Function stubs + DB triggers ready. OAuth flow + Calendar API in separate phase. |
-| Outlook Calendar OAuth + API | Deferred | Same as Google — prep now, build later. |
+| Google Calendar OAuth + API | **Phase 11 — Planned** | Full spec in `docs/courtside-integrations-plan.md`. Multiple accounts + sub-calendars. Per-campaign assignment. |
+| Outlook Calendar OAuth + API | **Phase 11 — Planned** | Same plan as Google. Microsoft Graph API. |
+| CRM Integration (HubSpot) | **Phase 11 — Planned** | Full spec in `docs/courtside-integrations-plan.md`. One CRM at a time. Lead import + activity pushback. |
 | Daily Summary Email | Deferred | Morning digest with yesterday's stats. Valuable but not core. |
 | Inbound Call Post-Call Analysis | Deferred | Contact matching by phone number, create unknown contacts from AI extraction. |
 | SMS Auto-Response / Chatbot | Future | Automated replies to inbound SMS. |
@@ -192,6 +193,7 @@ The top-level tenant entity.
 | `address` | text | |
 | `country` | text | "CA" or "US" |
 | `stripe_customer_id` | text | Stripe customer ID |
+| `timezone` | text | nullable, e.g., "America/New_York" |
 | `created_at` | timestamptz | |
 | `updated_at` | timestamptz | |
 
@@ -211,7 +213,7 @@ Team members within an organization. Extends Supabase Auth.
 | `email` | text | |
 | `phone` | text | |
 | `timezone` | text | "EST" |
-| `role` | enum (owner/admin/member) | |
+| `role` | enum (owner/admin/member/super_admin) | super_admin for internal Courtside team |
 | `avatar_url` | text | nullable |
 | `status` | text | "active" or "invited" |
 | `created_at` | timestamptz | |
@@ -527,6 +529,7 @@ Business verification status and data.
 | `rep_phone` | text | |
 | `rep_dob` | date | |
 | `submitted_at` | timestamptz | nullable |
+| `registration_type` | text | nullable |
 | `reviewed_at` | timestamptz | nullable |
 | `created_at` | timestamptz | |
 | `updated_at` | timestamptz | |
@@ -1411,6 +1414,31 @@ CREATE INDEX idx_campaign_schedules_campaign ON campaign_schedules(campaign_id);
 CREATE INDEX idx_sms_contact ON sms_messages(contact_id, created_at DESC);
 CREATE INDEX idx_emails_contact ON emails(contact_id, created_at DESC);
 ```
+
+---
+
+## Schema Audit Notes (February 2026)
+
+Verified against live Supabase project `xkwywpqrthzownikeill` on 2026-02-26. Key notes:
+
+1. **`organizations.timezone`** — Exists in DB, was missing from this doc. Added above.
+2. **`users.role` enum** — DB already includes `super_admin` (added for Phase 10 Admin Panel). Updated above.
+3. **`verification.registration_type`** — Exists in DB, was missing from this doc. Added above.
+4. **`appointments` nullability** — DB currently has `lead_id`, `contact_id`, `campaign_id` as NOT NULL. The Calendar & CRM Integrations Plan (Phase 11) requires these to become nullable to support manual appointments. Migration needed.
+5. **`phone_numbers` structure** — DB matches this doc (Section 4.11). Phase 10 proposed a different structure — the DB-current version takes precedence.
+
+### Pending Schema Changes (from Integrations Plan)
+
+See `docs/courtside-integrations-plan.md` Section 4 for full details. Summary of changes needed:
+
+**New tables:** `calendar_connections`, `campaign_appointment_schedules`, `calendar_blocks`, `crm_activity_log`
+
+**Modified tables:**
+- `contacts` — add `crm_provider` (text), `crm_record_id` (text)
+- `campaigns` — add `calendar_connection_id` (uuid FK → calendar_connections)
+- `appointments` — add `calendar_connection_id` (uuid FK), `sync_status` (text), `is_manual` (boolean), `title` (text). Make `lead_id`, `contact_id`, `campaign_id` nullable.
+- `integrations` — add `account_email` (text), `service_type` (text)
+- `leads` — add `import_source` (text)
 
 ---
 

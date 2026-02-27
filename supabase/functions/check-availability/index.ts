@@ -3,6 +3,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { createUserClient, createServiceClient } from "../_shared/supabase-client.ts";
 import { jsonResponse, errorResponse } from "../_shared/response.ts";
 import { getAuthContext } from "../_shared/auth.ts";
+import { getValidAccessToken } from "../_shared/oauth.ts";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -16,16 +17,36 @@ interface BusyPeriod {
   end: Date;
 }
 
+interface ScheduleSlot {
+  start: string; // "HH:MM"
+  end: string;   // "HH:MM"
+}
+
+interface DaySchedule {
+  enabled: boolean;
+  slots: ScheduleSlot[];
+}
+
 // ── Constants ──────────────────────────────────────────────────────
 
-const BUSINESS_HOURS_START = 9;  // 9 AM
-const BUSINESS_HOURS_END = 17;   // 5 PM
 const DEFAULT_TIMEZONE = "America/Toronto";
+
+const DEFAULT_BUSINESS_HOURS: DaySchedule = {
+  enabled: true,
+  slots: [{ start: "09:00", end: "17:00" }],
+};
+
+// Mon=0..Sun=6 — default Mon-Fri enabled, Sat-Sun disabled
+function getDefaultSchedule(dayOfWeek: number): DaySchedule {
+  if (dayOfWeek >= 5) return { enabled: false, slots: [] }; // Sat/Sun
+  return DEFAULT_BUSINESS_HOURS;
+}
 
 // ── Calendar API helpers ───────────────────────────────────────────
 
 async function getGoogleBusyPeriods(
   accessToken: string,
+  calendarId: string,
   dateStart: string,
   dateEnd: string,
   timezone: string
@@ -42,7 +63,7 @@ async function getGoogleBusyPeriods(
         timeMin: `${dateStart}T00:00:00`,
         timeMax: `${dateEnd}T23:59:59`,
         timeZone: timezone,
-        items: [{ id: "primary" }],
+        items: [{ id: calendarId }],
       }),
     }
   );
@@ -54,7 +75,7 @@ async function getGoogleBusyPeriods(
   }
 
   const data = await response.json();
-  const busySlots = data.calendars?.primary?.busy ?? [];
+  const busySlots = data.calendars?.[calendarId]?.busy ?? [];
 
   return busySlots.map((slot: { start: string; end: string }) => ({
     start: new Date(slot.start),
@@ -64,10 +85,13 @@ async function getGoogleBusyPeriods(
 
 async function getOutlookBusyPeriods(
   accessToken: string,
+  calendarId: string,
   dateStart: string,
   dateEnd: string
 ): Promise<BusyPeriod[]> {
-  const url = new URL("https://graph.microsoft.com/v1.0/me/calendarView");
+  const url = new URL(
+    `https://graph.microsoft.com/v1.0/me/calendars/${encodeURIComponent(calendarId)}/calendarView`
+  );
   url.searchParams.set("startDateTime", `${dateStart}T00:00:00.000Z`);
   url.searchParams.set("endDateTime", `${dateEnd}T23:59:59.000Z`);
   url.searchParams.set("$select", "start,end,isCancelled");
@@ -96,71 +120,103 @@ async function getOutlookBusyPeriods(
     }));
 }
 
+// ── Schedule helpers ──────────────────────────────────────────────
+
+function getDaySchedule(
+  scheduleRows: Array<{ day_of_week: number; enabled: boolean; slots: unknown }>,
+  dayOfWeek: number
+): DaySchedule {
+  const row = scheduleRows.find((r) => r.day_of_week === dayOfWeek);
+  if (!row) return getDefaultSchedule(dayOfWeek);
+  return {
+    enabled: row.enabled,
+    slots: (row.slots as ScheduleSlot[]) ?? [],
+  };
+}
+
 // ── Slot computation ───────────────────────────────────────────────
 
 function computeAvailableSlots(
   date: string,
   durationMinutes: number,
   busyPeriods: BusyPeriod[],
-  timezone: string
+  businessSlots: ScheduleSlot[]
 ): TimeSlot[] {
-  // Build minute-level occupancy for business hours
-  const totalMinutes = (BUSINESS_HOURS_END - BUSINESS_HOURS_START) * 60;
-  const occupied = new Array(totalMinutes).fill(false);
+  if (businessSlots.length === 0) return [];
 
-  // Reference start-of-business as a Date for comparison
-  const businessStart = new Date(`${date}T${pad(BUSINESS_HOURS_START)}:00:00`);
-  const businessEnd = new Date(`${date}T${pad(BUSINESS_HOURS_END)}:00:00`);
+  const availableSlots: TimeSlot[] = [];
 
-  for (const busy of busyPeriods) {
-    // Clamp to business hours
-    const bStart = busy.start < businessStart ? businessStart : busy.start;
-    const bEnd = busy.end > businessEnd ? businessEnd : busy.end;
+  for (const biz of businessSlots) {
+    const bizStartMinutes = parseTimeToMinutes(biz.start);
+    const bizEndMinutes = parseTimeToMinutes(biz.end);
+    const totalMinutes = bizEndMinutes - bizStartMinutes;
+    if (totalMinutes <= 0) continue;
 
-    if (bStart >= bEnd) continue;
+    // Build minute-level occupancy for this business window
+    const occupied = new Array(totalMinutes).fill(false);
 
-    const startMin = Math.floor(
-      (bStart.getTime() - businessStart.getTime()) / 60_000
-    );
-    const endMin = Math.ceil(
-      (bEnd.getTime() - businessStart.getTime()) / 60_000
-    );
+    const businessStart = new Date(`${date}T${biz.start}:00`);
+    const businessEnd = new Date(`${date}T${biz.end}:00`);
 
-    for (let m = Math.max(0, startMin); m < Math.min(totalMinutes, endMin); m++) {
-      occupied[m] = true;
-    }
-  }
+    for (const busy of busyPeriods) {
+      const bStart = busy.start < businessStart ? businessStart : busy.start;
+      const bEnd = busy.end > businessEnd ? businessEnd : busy.end;
+      if (bStart >= bEnd) continue;
 
-  // Walk through and collect free slots of at least `durationMinutes`
-  const slots: TimeSlot[] = [];
+      const startMin = Math.floor(
+        (bStart.getTime() - businessStart.getTime()) / 60_000
+      );
+      const endMin = Math.ceil(
+        (bEnd.getTime() - businessStart.getTime()) / 60_000
+      );
 
-  for (let m = 0; m <= totalMinutes - durationMinutes; m += durationMinutes) {
-    let free = true;
-    for (let d = 0; d < durationMinutes; d++) {
-      if (occupied[m + d]) {
-        free = false;
-        break;
+      for (let m = Math.max(0, startMin); m < Math.min(totalMinutes, endMin); m++) {
+        occupied[m] = true;
       }
     }
-    if (free) {
-      const startHour = BUSINESS_HOURS_START + Math.floor(m / 60);
-      const startMinute = m % 60;
-      const endOffset = m + durationMinutes;
-      const endHour = BUSINESS_HOURS_START + Math.floor(endOffset / 60);
-      const endMinute = endOffset % 60;
 
-      slots.push({
-        start: `${pad(startHour)}:${pad(startMinute)}`,
-        end: `${pad(endHour)}:${pad(endMinute)}`,
-      });
+    // Walk through and collect free slots
+    for (let m = 0; m <= totalMinutes - durationMinutes; m += durationMinutes) {
+      let free = true;
+      for (let d = 0; d < durationMinutes; d++) {
+        if (occupied[m + d]) {
+          free = false;
+          break;
+        }
+      }
+      if (free) {
+        const startTotalMin = bizStartMinutes + m;
+        const endTotalMin = startTotalMin + durationMinutes;
+        availableSlots.push({
+          start: minutesToTime(startTotalMin),
+          end: minutesToTime(endTotalMin),
+        });
+      }
     }
   }
 
-  return slots;
+  return availableSlots;
+}
+
+function parseTimeToMinutes(time: string): number {
+  const [h, m] = time.split(":").map(Number);
+  return h * 60 + m;
+}
+
+function minutesToTime(totalMinutes: number): string {
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return `${pad(h)}:${pad(m)}`;
 }
 
 function pad(n: number): string {
   return n.toString().padStart(2, "0");
+}
+
+// JS Date.getDay() returns 0=Sun..6=Sat
+// Our schema uses 0=Mon..6=Sun
+function jsDayToSchemaDow(jsDay: number): number {
+  return jsDay === 0 ? 6 : jsDay - 1;
 }
 
 // ── Main handler ───────────────────────────────────────────────────
@@ -177,11 +233,16 @@ serve(async (req) => {
   try {
     const url = new URL(req.url);
     const date = url.searchParams.get("date");
+    const campaignId = url.searchParams.get("campaign_id");
     const durationParam = url.searchParams.get("duration");
+    const timezoneParam = url.searchParams.get("timezone");
     const orgIdParam = url.searchParams.get("org_id");
 
     if (!date) {
       return errorResponse("Missing required query parameter: date", 400);
+    }
+    if (!campaignId) {
+      return errorResponse("Missing required query parameter: campaign_id", 400);
     }
 
     // Validate date format (YYYY-MM-DD)
@@ -194,10 +255,9 @@ serve(async (req) => {
       return errorResponse("Duration must be between 15 and 240 minutes.", 400);
     }
 
+    const timezone = timezoneParam || DEFAULT_TIMEZONE;
+
     // ── Determine org and supabase client ──
-    // Support two auth modes:
-    //   1. JWT auth from dashboard (uses getAuthContext)
-    //   2. org_id param from Retell webhook context (uses service role client)
     let orgId: string;
     let supabase;
 
@@ -205,7 +265,6 @@ serve(async (req) => {
     const hasJwt = authHeader && authHeader.startsWith("Bearer ") && !authHeader.includes(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "__never__");
 
     if (hasJwt) {
-      // Dashboard / authenticated user
       try {
         const ctx = await getAuthContext(req);
         orgId = ctx.orgId;
@@ -214,45 +273,62 @@ serve(async (req) => {
         return errorResponse("Unauthorized", 401);
       }
     } else if (orgIdParam) {
-      // Retell live-call context — use service role
       orgId = orgIdParam;
       supabase = createServiceClient();
     } else {
       return errorResponse("Unauthorized — provide a JWT or org_id parameter", 401);
     }
 
-    // ── Fetch calendar integration ──
-    const { data: integrations } = await supabase
-      .from("integrations")
-      .select("service_name, config")
+    // ── Fetch campaign's calendar connection ──
+    const { data: campaign, error: campaignError } = await supabase
+      .from("campaigns")
+      .select("id, calendar_connection_id")
+      .eq("id", campaignId)
       .eq("org_id", orgId)
-      .in("service_name", ["google_calendar", "outlook_calendar"])
-      .eq("status", "connected");
+      .single();
+
+    if (campaignError || !campaign) {
+      return errorResponse("Campaign not found", 404);
+    }
 
     const busyPeriods: BusyPeriod[] = [];
 
-    if (integrations && integrations.length > 0) {
-      const integration = integrations[0];
-      const config = integration.config as Record<string, string>;
-      const accessToken = config?.access_token;
+    // ── External calendar busy periods ──
+    if (campaign.calendar_connection_id) {
+      const { data: calConn } = await supabase
+        .from("calendar_connections")
+        .select("id, integration_id, provider, provider_calendar_id")
+        .eq("id", campaign.calendar_connection_id)
+        .single();
 
-      if (accessToken) {
-        if (integration.service_name === "google_calendar") {
-          const periods = await getGoogleBusyPeriods(
-            accessToken,
-            date,
-            date,
-            DEFAULT_TIMEZONE
-          );
-          busyPeriods.push(...periods);
-        } else if (integration.service_name === "outlook_calendar") {
-          const periods = await getOutlookBusyPeriods(accessToken, date, date);
-          busyPeriods.push(...periods);
+      if (calConn) {
+        const providerType = calConn.provider as "google" | "outlook";
+        const accessToken = await getValidAccessToken(calConn.integration_id, providerType);
+
+        if (accessToken) {
+          if (providerType === "google") {
+            const periods = await getGoogleBusyPeriods(
+              accessToken,
+              calConn.provider_calendar_id,
+              date,
+              date,
+              timezone
+            );
+            busyPeriods.push(...periods);
+          } else if (providerType === "outlook") {
+            const periods = await getOutlookBusyPeriods(
+              accessToken,
+              calConn.provider_calendar_id,
+              date,
+              date
+            );
+            busyPeriods.push(...periods);
+          }
         }
       }
     }
 
-    // ── Fetch existing appointments for the date ──
+    // ── Always fetch existing appointments for the date (Courtside Calendar) ──
     const dayStart = `${date}T00:00:00`;
     const dayEnd = `${date}T23:59:59`;
 
@@ -272,18 +348,37 @@ serve(async (req) => {
       }
     }
 
+    // ── Fetch business hours from campaign_appointment_schedules ──
+    const { data: scheduleRows } = await supabase
+      .from("campaign_appointment_schedules")
+      .select("day_of_week, enabled, slots")
+      .eq("campaign_id", campaignId);
+
+    const jsDay = new Date(date + "T12:00:00").getDay();
+    const schemaDow = jsDayToSchemaDow(jsDay);
+    const daySchedule = getDaySchedule(scheduleRows ?? [], schemaDow);
+
+    if (!daySchedule.enabled || daySchedule.slots.length === 0) {
+      return jsonResponse({
+        date,
+        available_slots: [],
+        timezone,
+        reason: "day_not_available",
+      });
+    }
+
     // ── Compute available slots ──
     const availableSlots = computeAvailableSlots(
       date,
       durationMinutes,
       busyPeriods,
-      DEFAULT_TIMEZONE
+      daySchedule.slots
     );
 
     return jsonResponse({
       date,
       available_slots: availableSlots,
-      timezone: DEFAULT_TIMEZONE,
+      timezone,
     });
   } catch (error) {
     console.error("check-availability error:", error);

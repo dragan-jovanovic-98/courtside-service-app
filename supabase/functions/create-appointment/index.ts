@@ -25,37 +25,64 @@ serve(async (req) => {
       scheduled_at,
       duration_minutes,
       notes,
+      calendar_connection_id,
+      is_manual,
+      title,
     } = await req.json();
 
-    if (!lead_id || !contact_id || !campaign_id || !scheduled_at) {
+    if (!scheduled_at) {
+      return errorResponse("scheduled_at is required", 400);
+    }
+
+    // Validation: either lead-based or manual appointment
+    const isManualAppt = is_manual === true;
+
+    if (!isManualAppt && (!lead_id || !contact_id || !campaign_id)) {
       return errorResponse(
-        "lead_id, contact_id, campaign_id, and scheduled_at are required"
+        "lead_id, contact_id, and campaign_id are required for non-manual appointments. Set is_manual: true for manual appointments.",
+        400
       );
     }
 
-    // Validate lead belongs to org
-    const { data: lead, error: leadError } = await supabase
-      .from("leads")
-      .select("id")
-      .eq("id", lead_id)
-      .eq("org_id", orgId)
-      .single();
-
-    if (leadError || !lead) {
-      return errorResponse("Lead not found", 404);
+    if (isManualAppt && !title) {
+      return errorResponse(
+        "title is required for manual appointments",
+        400
+      );
     }
+
+    // Validate lead belongs to org (if lead-based)
+    if (lead_id) {
+      const { data: lead, error: leadError } = await supabase
+        .from("leads")
+        .select("id")
+        .eq("id", lead_id)
+        .eq("org_id", orgId)
+        .single();
+
+      if (leadError || !lead) {
+        return errorResponse("Lead not found", 404);
+      }
+    }
+
+    // Determine sync_status
+    const syncStatus = calendar_connection_id ? "pending" : "not_applicable";
 
     const { data, error: insertError } = await supabase
       .from("appointments")
       .insert({
         org_id: orgId,
-        lead_id,
-        contact_id,
-        campaign_id,
+        ...(lead_id && { lead_id }),
+        ...(contact_id && { contact_id }),
+        ...(campaign_id && { campaign_id }),
         ...(call_id && { call_id }),
         scheduled_at,
         ...(duration_minutes && { duration_minutes }),
         ...(notes && { notes }),
+        ...(calendar_connection_id && { calendar_connection_id }),
+        ...(title && { title }),
+        is_manual: isManualAppt,
+        sync_status: syncStatus,
         status: "scheduled",
       })
       .select("id")

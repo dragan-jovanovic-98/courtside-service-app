@@ -20,6 +20,7 @@ import {
   X,
   FileSpreadsheet,
   ExternalLink,
+  Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -412,27 +413,177 @@ function AddLeadModal({
 }
 
 // ---------------------------------------------------------------------------
+// CRM Import Modal
+// ---------------------------------------------------------------------------
+function CrmImportModal({
+  campaigns,
+  onClose,
+  onSuccess,
+}: {
+  campaigns: { id: string; name: string }[];
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [campaignId, setCampaignId] = useState(campaigns[0]?.id ?? "");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<{ imported: number; duplicates: number } | null>(null);
+
+  const handleImport = async () => {
+    if (!campaignId) {
+      setError("Select a campaign");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+
+    const { data, error: err } = await callEdgeFunction<{
+      imported: number;
+      duplicates: number;
+    }>("crm-import-contacts", {
+      campaign_id: campaignId,
+      preview_only: false,
+    });
+
+    setLoading(false);
+    if (err) {
+      setError(err);
+    } else if (data) {
+      setResult(data);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-xl border border-border-default bg-[#141820] p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-text-primary">Import from CRM</h2>
+          <button onClick={onClose} className="text-text-dim hover:text-text-muted">
+            <X size={18} />
+          </button>
+        </div>
+
+        {result ? (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-[rgba(52,211,153,0.3)] bg-emerald-bg p-4 text-center">
+              <div className="text-2xl font-bold text-emerald-light">{result.imported}</div>
+              <div className="text-sm text-text-muted">contacts imported</div>
+              {result.duplicates > 0 && (
+                <div className="mt-1 text-xs text-text-dim">{result.duplicates} duplicates skipped</div>
+              )}
+            </div>
+            <Button
+              className="w-full justify-center bg-emerald-dark text-white hover:bg-emerald-dark/90"
+              onClick={onSuccess}
+            >
+              Done
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-border-default bg-surface-card p-4 text-center">
+              <Database size={28} className="mx-auto mb-2 text-blue-light" />
+              <div className="text-sm font-medium text-text-primary">HubSpot Import</div>
+              <div className="mt-1 text-xs text-text-dim">
+                Import all contacts from your connected HubSpot account
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-text-muted">Add to Campaign</Label>
+              {campaigns.length === 0 ? (
+                <p className="text-sm text-red-light">
+                  No campaigns found. Create a campaign first.
+                </p>
+              ) : (
+                <select
+                  className="w-full appearance-none rounded-lg border border-border-default bg-surface-input px-3 py-2 text-sm text-text-primary outline-none"
+                  value={campaignId}
+                  onChange={(e) => setCampaignId(e.target.value)}
+                >
+                  {campaigns.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {error && <p className="text-sm text-red-light">{error}</p>}
+
+            <div className="flex gap-2 pt-2">
+              <Button variant="ghost" className="flex-1" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 gap-1.5 bg-emerald-dark text-white hover:bg-emerald-dark/90"
+                onClick={handleImport}
+                disabled={loading || !campaignId}
+              >
+                {loading ? "Importing…" : (
+                  <>
+                    <Database size={14} /> Import
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
+const SOURCES = ["CSV Import", "CRM Import", "Manual", "Inbound"] as const;
+
+function sourceLabel(source: string | null): string {
+  if (!source) return "CSV";
+  switch (source) {
+    case "csv": return "CSV";
+    case "crm_import": return "CRM";
+    case "manual": return "Manual";
+    case "inbound": return "Inbound";
+    default: return source;
+  }
+}
+
+function sourceBadgeColor(source: string | null): BadgeColor {
+  if (!source) return "default";
+  switch (source) {
+    case "crm_import": return "blue";
+    case "manual": return "purple";
+    case "inbound": return "amber";
+    default: return "default";
+  }
+}
+
 export function LeadsClient({
   leads,
   stats,
   campaigns,
+  hasCrm = false,
   initialDetailId = null,
 }: {
   leads: LeadListItem[];
   stats: { total: number; followUps: number; appointments: number; new: number };
   campaigns: { id: string; name: string }[];
+  hasCrm?: boolean;
   initialDetailId?: string | null;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [outcomeFilter, setOutcomeFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("all");
   const [detailId, setDetailId] = useState<string | null>(initialDetailId);
   const [timeline] = useState<TimelineEvent[]>([]);
   const [showImport, setShowImport] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [showCrmImport, setShowCrmImport] = useState(false);
   const [leadCalls, setLeadCalls] = useState<LeadCallItem[]>([]);
   const [loadingCalls, setLoadingCalls] = useState(false);
 
@@ -450,12 +601,16 @@ export function LeadsClient({
       outcomeFilter === "all" ||
       (l.outcome &&
         outcomeKey(l.outcome) === outcomeKey(outcomeFilter));
-    return matchesSearch && matchesStatus && matchesOutcome;
+    const matchesSource =
+      sourceFilter === "all" ||
+      sourceLabel(l.source).toLowerCase() === sourceFilter.toLowerCase().replace(/ import/g, "");
+    return matchesSearch && matchesStatus && matchesOutcome && matchesSource;
   });
 
   const handleModalSuccess = () => {
     setShowImport(false);
     setShowAdd(false);
+    setShowCrmImport(false);
     router.refresh();
   };
 
@@ -503,6 +658,11 @@ export function LeadsClient({
               {lead.outcome}
             </ColoredBadge>
           )}
+          {lead.source && (
+            <ColoredBadge color={sourceBadgeColor(lead.source)}>
+              {sourceLabel(lead.source)}
+            </ColoredBadge>
+          )}
         </div>
 
         <div className="grid grid-cols-[220px_1fr] gap-5">
@@ -525,6 +685,16 @@ export function LeadsClient({
                   {icon} {val}
                 </div>
               ))}
+              {lead.crmRecordId && lead.crmProvider === "hubspot" && (
+                <a
+                  href={`https://app.hubspot.com/contacts/${lead.crmRecordId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 flex items-center gap-1.5 text-[12px] font-medium text-blue-light hover:underline"
+                >
+                  <ExternalLink size={12} /> View in HubSpot
+                </a>
+              )}
             </div>
 
             {/* Status management */}
@@ -743,14 +913,26 @@ export function LeadsClient({
           onSuccess={handleModalSuccess}
         />
       )}
+      {showCrmImport && (
+        <CrmImportModal
+          campaigns={campaigns}
+          onClose={() => setShowCrmImport(false)}
+          onSuccess={handleModalSuccess}
+        />
+      )}
 
       {/* Header */}
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-text-primary">Leads</h1>
         <div className="flex gap-2">
           <Button variant="ghost" className="gap-1.5" onClick={() => setShowImport(true)}>
-            <Upload size={14} /> Import
+            <Upload size={14} /> Import CSV
           </Button>
+          {hasCrm && (
+            <Button variant="ghost" className="gap-1.5" onClick={() => setShowCrmImport(true)}>
+              <Database size={14} /> Import CRM
+            </Button>
+          )}
           <Button
             className="gap-1.5 bg-emerald-dark text-white hover:bg-emerald-dark/90"
             onClick={() => setShowAdd(true)}
@@ -808,6 +990,12 @@ export function LeadsClient({
           options={[...OUTCOMES]}
           onChange={setOutcomeFilter}
         />
+        <DropdownSelect
+          label="Source"
+          value={sourceFilter}
+          options={[...SOURCES]}
+          onChange={setSourceFilter}
+        />
       </div>
 
       {/* Leads table */}
@@ -830,7 +1018,7 @@ export function LeadsClient({
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-border-default">
-              {["Name", "Phone", "Status", "Outcome", "Last", "Campaign"].map(
+              {["Name", "Phone", "Status", "Outcome", "Source", "Last", "Campaign"].map(
                 (h) => (
                   <th
                     key={h}
@@ -882,6 +1070,11 @@ export function LeadsClient({
                       <span className="text-xs text-text-dim">—</span>
                     )}
                   </td>
+                  <td className="px-4 py-2.5">
+                    <ColoredBadge color={sourceBadgeColor(l.source)}>
+                      {sourceLabel(l.source)}
+                    </ColoredBadge>
+                  </td>
                   <td className="px-4 py-2.5 text-xs text-text-dim">
                     {l.lastActivity}
                   </td>
@@ -893,7 +1086,7 @@ export function LeadsClient({
             ) : (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={7}
                   className="px-4 py-6 text-center text-[13px] text-text-dim"
                 >
                   No leads match your filters

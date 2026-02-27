@@ -40,6 +40,10 @@ export type SmsMessage = Tables<"sms_messages">;
 export type Email = Tables<"emails">;
 export type Notification = Tables<"notifications">;
 export type WorkflowEvent = Tables<"workflow_events">;
+export type CalendarConnection = Tables<"calendar_connections">;
+export type CampaignAppointmentSchedule = Tables<"campaign_appointment_schedules">;
+export type CalendarBlock = Tables<"calendar_blocks">;
+export type CrmActivityLog = Tables<"crm_activity_log">;
 
 // ── Composite / joined types ────────────────────────────────────────
 
@@ -64,7 +68,7 @@ export type CallWithDetails = Call & {
 
 /** Appointment with contact and campaign info — used in calendar */
 export type AppointmentWithDetails = Appointment & {
-  contacts: Contact;
+  contacts: Contact | null;
   campaigns: Pick<Campaign, "id" | "name" | "status"> | null;
   leads: Pick<Lead, "id" | "status"> | null;
 };
@@ -170,6 +174,9 @@ export type LeadListItem = {
   outcome: string | null;
   lastActivity: string;
   campaign: string;
+  source: string | null;
+  crmProvider: string | null;
+  crmRecordId: string | null;
 };
 
 export type CallListItem = {

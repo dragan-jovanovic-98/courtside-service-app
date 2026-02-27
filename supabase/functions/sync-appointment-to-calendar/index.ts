@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { createServiceClient } from "../_shared/supabase-client.ts";
 import { jsonResponse, errorResponse } from "../_shared/response.ts";
+import { getValidAccessToken } from "../_shared/oauth.ts";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -10,16 +11,7 @@ interface SyncRequest {
   action: "create" | "update" | "delete";
 }
 
-interface CalendarEventResult {
-  eventId: string;
-  provider: string;
-}
-
 // ── Auth helper ────────────────────────────────────────────────────
-
-// Supabase Edge Functions now use sb_secret_ format for SUPABASE_SERVICE_ROLE_KEY,
-// but DB triggers send the legacy JWT from vault. We decode the JWT and check the
-// role claim instead of doing a direct string comparison.
 
 function verifyServiceAuth(req: Request): void {
   const authHeader = req.headers.get("Authorization");
@@ -29,16 +21,13 @@ function verifyServiceAuth(req: Request): void {
 
   const token = authHeader.replace("Bearer ", "");
 
-  // Check against N8N webhook secret (simple string match)
   const webhookSecret = Deno.env.get("N8N_WEBHOOK_SECRET");
   if (webhookSecret && token === webhookSecret) return;
 
-  // Check against new-format service role key
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (serviceRoleKey && token === serviceRoleKey) return;
 
-  // Decode JWT and verify it has service_role claim
-  // (handles legacy JWT sent by DB triggers via vault)
+  // Decode JWT and verify it has service_role claim (legacy JWT from DB triggers via vault)
   try {
     const parts = token.split(".");
     if (parts.length === 3) {
@@ -56,6 +45,7 @@ function verifyServiceAuth(req: Request): void {
 
 async function googleCreateEvent(
   accessToken: string,
+  calendarId: string,
   summary: string,
   description: string,
   startDateTime: string,
@@ -63,7 +53,7 @@ async function googleCreateEvent(
   timezone: string
 ): Promise<string> {
   const response = await fetch(
-    "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
     {
       method: "POST",
       headers: {
@@ -90,6 +80,7 @@ async function googleCreateEvent(
 
 async function googleUpdateEvent(
   accessToken: string,
+  calendarId: string,
   eventId: string,
   summary: string,
   description: string,
@@ -98,7 +89,7 @@ async function googleUpdateEvent(
   timezone: string
 ): Promise<string> {
   const response = await fetch(
-    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`,
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
     {
       method: "PATCH",
       headers: {
@@ -125,10 +116,11 @@ async function googleUpdateEvent(
 
 async function googleDeleteEvent(
   accessToken: string,
+  calendarId: string,
   eventId: string
 ): Promise<void> {
   const response = await fetch(
-    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`,
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
     {
       method: "DELETE",
       headers: {
@@ -137,7 +129,6 @@ async function googleDeleteEvent(
     }
   );
 
-  // 204 No Content or 410 Gone are both acceptable
   if (!response.ok && response.status !== 204 && response.status !== 410) {
     const err = await response.text();
     throw new Error(`Google Calendar delete failed: ${err}`);
@@ -148,6 +139,7 @@ async function googleDeleteEvent(
 
 async function outlookCreateEvent(
   accessToken: string,
+  calendarId: string,
   subject: string,
   bodyContent: string,
   startDateTime: string,
@@ -155,7 +147,7 @@ async function outlookCreateEvent(
   timezone: string
 ): Promise<string> {
   const response = await fetch(
-    "https://graph.microsoft.com/v1.0/me/events",
+    `https://graph.microsoft.com/v1.0/me/calendars/${encodeURIComponent(calendarId)}/events`,
     {
       method: "POST",
       headers: {
@@ -245,7 +237,12 @@ function computeEndDateTime(scheduledAt: string, durationMinutes: number): strin
   return end.toISOString();
 }
 
-function buildEventSummary(contactFirstName?: string, contactLastName?: string): string {
+function buildEventSummary(
+  title?: string | null,
+  contactFirstName?: string,
+  contactLastName?: string
+): string {
+  if (title) return title;
   const name = [contactFirstName, contactLastName].filter(Boolean).join(" ");
   return name ? `Appointment with ${name}` : "Appointment — Courtside AI";
 }
@@ -277,7 +274,6 @@ serve(async (req) => {
   }
 
   try {
-    // ── Auth: service role or webhook secret ──
     verifyServiceAuth(req);
 
     const body: SyncRequest = await req.json();
@@ -293,11 +289,11 @@ serve(async (req) => {
 
     const supabase = createServiceClient();
 
-    // ── Fetch appointment ──
+    // ── Fetch appointment with calendar connection ──
     const { data: appointment, error: apptError } = await supabase
       .from("appointments")
       .select(
-        "id, org_id, scheduled_at, duration_minutes, notes, contact_id, calendar_event_id, status"
+        "id, org_id, scheduled_at, duration_minutes, notes, contact_id, calendar_event_id, calendar_connection_id, sync_status, status, title"
       )
       .eq("id", appointment_id)
       .single();
@@ -306,9 +302,46 @@ serve(async (req) => {
       return errorResponse("Appointment not found", 404);
     }
 
+    // ── No calendar connection → skip sync ──
+    if (!appointment.calendar_connection_id) {
+      return jsonResponse({
+        synced: false,
+        reason: "no_calendar_connection",
+      });
+    }
+
+    // ── Look up calendar connection → integration ──
+    const { data: calConn, error: calConnError } = await supabase
+      .from("calendar_connections")
+      .select("id, integration_id, provider, provider_calendar_id")
+      .eq("id", appointment.calendar_connection_id)
+      .single();
+
+    if (calConnError || !calConn) {
+      await updateSyncStatus(supabase, appointment_id, "failed");
+      return jsonResponse({
+        synced: false,
+        reason: "calendar_connection_not_found",
+      });
+    }
+
+    // ── Get valid access token with refresh ──
+    const providerType = calConn.provider as "google" | "outlook";
+    const accessToken = await getValidAccessToken(calConn.integration_id, providerType);
+
+    if (!accessToken) {
+      await updateSyncStatus(supabase, appointment_id, "failed");
+      return jsonResponse({
+        synced: false,
+        reason: "token_refresh_failed",
+      });
+    }
+
+    const isGoogle = providerType === "google";
+    const calendarId = calConn.provider_calendar_id;
+
     // ── Fetch contact ──
     let contact: { first_name?: string; last_name?: string; phone?: string } | null = null;
-
     if (appointment.contact_id) {
       const { data } = await supabase
         .from("contacts")
@@ -318,35 +351,7 @@ serve(async (req) => {
       contact = data;
     }
 
-    // ── Fetch calendar integration ──
-    const { data: integrations } = await supabase
-      .from("integrations")
-      .select("service_name, config")
-      .eq("org_id", appointment.org_id)
-      .in("service_name", ["google_calendar", "outlook_calendar"])
-      .eq("status", "connected");
-
-    if (!integrations || integrations.length === 0) {
-      return jsonResponse({
-        synced: false,
-        reason: "no_calendar_connected",
-      });
-    }
-
-    const integration = integrations[0];
-    const config = integration.config as Record<string, string>;
-    const accessToken = config?.access_token;
-
-    if (!accessToken) {
-      return jsonResponse({
-        synced: false,
-        reason: "no_access_token_in_integration_config",
-      });
-    }
-
-    const provider = integration.service_name as string;
-    const isGoogle = provider === "google_calendar";
-    const summary = buildEventSummary(contact?.first_name, contact?.last_name);
+    const summary = buildEventSummary(appointment.title, contact?.first_name, contact?.last_name);
     const description = buildEventDescription(
       contact?.first_name,
       contact?.last_name,
@@ -362,112 +367,111 @@ serve(async (req) => {
     let calendarEventId: string | null = appointment.calendar_event_id;
 
     // ── Execute action ──
-    switch (action) {
-      case "create": {
-        if (isGoogle) {
-          calendarEventId = await googleCreateEvent(
-            accessToken,
-            summary,
-            description,
-            startDateTime,
-            endDateTime,
-            DEFAULT_TIMEZONE
-          );
-        } else {
-          calendarEventId = await outlookCreateEvent(
-            accessToken,
-            summary,
-            description,
-            startDateTime,
-            endDateTime,
-            DEFAULT_TIMEZONE
-          );
-        }
-        break;
-      }
-
-      case "update": {
-        if (!calendarEventId) {
-          return errorResponse(
-            "Cannot update: appointment has no calendar_event_id. Create it first.",
-            400
-          );
+    try {
+      switch (action) {
+        case "create": {
+          if (isGoogle) {
+            calendarEventId = await googleCreateEvent(
+              accessToken, calendarId, summary, description,
+              startDateTime, endDateTime, DEFAULT_TIMEZONE
+            );
+          } else {
+            calendarEventId = await outlookCreateEvent(
+              accessToken, calendarId, summary, description,
+              startDateTime, endDateTime, DEFAULT_TIMEZONE
+            );
+          }
+          break;
         }
 
-        if (isGoogle) {
-          calendarEventId = await googleUpdateEvent(
-            accessToken,
-            calendarEventId,
-            summary,
-            description,
-            startDateTime,
-            endDateTime,
-            DEFAULT_TIMEZONE
-          );
-        } else {
-          calendarEventId = await outlookUpdateEvent(
-            accessToken,
-            calendarEventId,
-            summary,
-            description,
-            startDateTime,
-            endDateTime,
-            DEFAULT_TIMEZONE
-          );
+        case "update": {
+          if (!calendarEventId) {
+            // No existing event — create instead
+            if (isGoogle) {
+              calendarEventId = await googleCreateEvent(
+                accessToken, calendarId, summary, description,
+                startDateTime, endDateTime, DEFAULT_TIMEZONE
+              );
+            } else {
+              calendarEventId = await outlookCreateEvent(
+                accessToken, calendarId, summary, description,
+                startDateTime, endDateTime, DEFAULT_TIMEZONE
+              );
+            }
+          } else {
+            if (isGoogle) {
+              calendarEventId = await googleUpdateEvent(
+                accessToken, calendarId, calendarEventId, summary,
+                description, startDateTime, endDateTime, DEFAULT_TIMEZONE
+              );
+            } else {
+              calendarEventId = await outlookUpdateEvent(
+                accessToken, calendarEventId, summary,
+                description, startDateTime, endDateTime, DEFAULT_TIMEZONE
+              );
+            }
+          }
+          break;
         }
-        break;
-      }
 
-      case "delete": {
-        if (!calendarEventId) {
-          // Nothing to delete from calendar
+        case "delete": {
+          if (!calendarEventId) {
+            return jsonResponse({
+              synced: true,
+              calendar_event_id: null,
+              provider: providerType,
+              message: "No calendar event to delete",
+            });
+          }
+
+          if (isGoogle) {
+            await googleDeleteEvent(accessToken, calendarId, calendarEventId);
+          } else {
+            await outlookDeleteEvent(accessToken, calendarEventId);
+          }
+
+          await supabase
+            .from("appointments")
+            .update({
+              calendar_event_id: null,
+              calendar_provider: null,
+              calendar_synced_at: new Date().toISOString(),
+              sync_status: "synced",
+            })
+            .eq("id", appointment_id);
+
           return jsonResponse({
             synced: true,
             calendar_event_id: null,
-            provider,
-            message: "No calendar event to delete",
+            provider: providerType,
           });
         }
-
-        if (isGoogle) {
-          await googleDeleteEvent(accessToken, calendarEventId);
-        } else {
-          await outlookDeleteEvent(accessToken, calendarEventId);
-        }
-
-        // Clear calendar fields on the appointment
-        await supabase
-          .from("appointments")
-          .update({
-            calendar_event_id: null,
-            calendar_provider: null,
-            calendar_synced_at: new Date().toISOString(),
-          })
-          .eq("id", appointment_id);
-
-        return jsonResponse({
-          synced: true,
-          calendar_event_id: null,
-          provider,
-        });
       }
-    }
 
-    // ── Update appointment with calendar metadata (create/update) ──
-    await supabase
-      .from("appointments")
-      .update({
+      // ── Update appointment with calendar metadata (create/update) ──
+      await supabase
+        .from("appointments")
+        .update({
+          calendar_event_id: calendarEventId,
+          calendar_provider: providerType,
+          calendar_synced_at: new Date().toISOString(),
+          sync_status: "synced",
+        })
+        .eq("id", appointment_id);
+
+      return jsonResponse({
+        synced: true,
         calendar_event_id: calendarEventId,
-        calendar_provider: provider,
-        calendar_synced_at: new Date().toISOString(),
-      })
-      .eq("id", appointment_id);
-
-    return jsonResponse({
-      synced: true,
-      calendar_event_id: calendarEventId,
-      provider,
-    });
+        provider: providerType,
+      });
+    } catch (syncError) {
+      console.error("Calendar sync operation failed:", syncError);
+      await updateSyncStatus(supabase, appointment_id, "failed");
+      return jsonResponse({
+        synced: false,
+        reason: syncError.message ?? "calendar_api_error",
+      });
+    }
   } catch (error) {
     console.error("sync-appointment-to-calendar error:", error);
     if (error.message === "Unauthorized") {
@@ -476,3 +480,16 @@ serve(async (req) => {
     return errorResponse(error.message ?? "Internal server error", 500);
   }
 });
+
+// ── Helper to update sync_status ──
+
+async function updateSyncStatus(
+  supabase: ReturnType<typeof createServiceClient>,
+  appointmentId: string,
+  status: string
+) {
+  await supabase
+    .from("appointments")
+    .update({ sync_status: status })
+    .eq("id", appointmentId);
+}

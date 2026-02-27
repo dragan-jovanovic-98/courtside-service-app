@@ -24,6 +24,8 @@ interface CreateCampaignBody {
   timezone?: string;
   end_date?: string;
   schedules?: ScheduleInput[];
+  calendar_connection_id?: string | null;
+  appointment_schedules?: ScheduleInput[];
 }
 
 function buildDefaultSchedules(): ScheduleInput[] {
@@ -77,6 +79,7 @@ serve(async (req) => {
         retry_interval_hours: body.retry_interval_hours ?? 24,
         timezone: body.timezone ?? "America/New_York",
         end_date: body.end_date ?? null,
+        calendar_connection_id: body.calendar_connection_id ?? null,
       })
       .select("id")
       .single();
@@ -105,6 +108,24 @@ serve(async (req) => {
     if (schedError) {
       // Campaign was created but schedules failed — log but still return campaign
       console.error("Failed to insert schedules:", schedError.message);
+    }
+
+    // Insert appointment schedules (business hours for booking)
+    if (body.appointment_schedules && body.appointment_schedules.length > 0) {
+      const apptScheduleRows = body.appointment_schedules.map((s) => ({
+        campaign_id: campaign.id,
+        day_of_week: s.day_of_week,
+        enabled: s.enabled,
+        slots: s.slots,
+      }));
+
+      const { error: apptSchedError } = await supabase
+        .from("campaign_appointment_schedules")
+        .insert(apptScheduleRows);
+
+      if (apptSchedError) {
+        console.error("Failed to insert appointment schedules:", apptSchedError.message);
+      }
     }
 
     return jsonResponse({ id: campaign.id }, 201);

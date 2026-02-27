@@ -1,5 +1,6 @@
 import { getLeads, getLeadStats } from "@/lib/queries/leads";
 import { getCampaigns } from "@/lib/queries/campaigns";
+import { getConnectedCrm } from "@/lib/queries/integrations";
 import { LeadsClient } from "./_components/leads-client";
 
 export default async function LeadsPage({
@@ -7,10 +8,11 @@ export default async function LeadsPage({
 }: {
   searchParams: Promise<{ id?: string }>;
 }) {
-  const [leads, stats, campaigns, params] = await Promise.all([
+  const [leads, stats, campaigns, crmIntegration, params] = await Promise.all([
     getLeads(),
     getLeadStats(),
     getCampaigns(),
+    getConnectedCrm(),
     searchParams,
   ]);
 
@@ -21,6 +23,7 @@ export default async function LeadsPage({
       leads={leads}
       stats={stats}
       campaigns={campaignOptions}
+      hasCrm={!!crmIntegration}
       initialDetailId={params.id ?? null}
     />
   );
