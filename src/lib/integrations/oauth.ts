@@ -3,7 +3,13 @@
  * Used by the frontend to initiate OAuth flows (redirect to provider).
  */
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+function getSiteUrl(): string {
+  // Prefer env var, but fall back to window.location.origin on client
+  const envUrl = process.env.NEXT_PUBLIC_SITE_URL;
+  if (envUrl) return envUrl.replace(/\/+$/, ""); // strip trailing slash
+  if (typeof window !== "undefined") return window.location.origin;
+  return "http://localhost:3000";
+}
 
 /**
  * Build Google Calendar OAuth authorization URL.
@@ -15,7 +21,7 @@ export function getGoogleOAuthUrl(): string {
 
   const params = new URLSearchParams({
     client_id: clientId,
-    redirect_uri: `${siteUrl}/api/integrations/google/callback`,
+    redirect_uri: `${getSiteUrl()}/api/integrations/google/callback`,
     response_type: "code",
     scope: [
       "https://www.googleapis.com/auth/calendar",
@@ -38,7 +44,7 @@ export function getOutlookOAuthUrl(): string {
 
   const params = new URLSearchParams({
     client_id: clientId,
-    redirect_uri: `${siteUrl}/api/integrations/outlook/callback`,
+    redirect_uri: `${getSiteUrl()}/api/integrations/outlook/callback`,
     response_type: "code",
     scope: [
       "https://graph.microsoft.com/Calendars.ReadWrite",
@@ -62,7 +68,7 @@ export function getHubSpotOAuthUrl(): string {
 
   const params = new URLSearchParams({
     client_id: clientId,
-    redirect_uri: `${siteUrl}/api/integrations/hubspot/callback`,
+    redirect_uri: `${getSiteUrl()}/api/integrations/hubspot/callback`,
     scope: [
       "crm.objects.contacts.read",
       "crm.objects.contacts.write",
