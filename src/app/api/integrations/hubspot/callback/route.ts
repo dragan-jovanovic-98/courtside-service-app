@@ -48,13 +48,18 @@ export async function GET(request: NextRequest) {
       }
     );
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    // Refresh the session — the JWT may have expired during the OAuth redirect
+    const { data: refreshData } = await supabase.auth.refreshSession();
+    let session = refreshData?.session;
+
+    if (!session) {
+      const { data: sessionData } = await supabase.auth.getSession();
+      session = sessionData?.session;
+    }
 
     if (!session) {
       return NextResponse.redirect(
-        `${settingsUrl}?error=${encodeURIComponent("Not authenticated")}`
+        `${settingsUrl}?error=${encodeURIComponent("Not authenticated — please log in and try again")}`
       );
     }
 
