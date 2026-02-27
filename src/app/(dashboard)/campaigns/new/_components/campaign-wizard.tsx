@@ -48,6 +48,20 @@ const STATUS_COLORS: Record<string, BadgeColor> = {
 
 const STEPS = ["Select Agent", "Add Leads", "Schedule", "Review"];
 
+// Generate time options in 30-min increments (6:00 AM → 11:30 PM)
+const TIME_OPTIONS: string[] = [];
+for (let h = 6; h <= 23; h++) {
+  for (const m of [0, 30]) {
+    if (h === 23 && m === 30) continue;
+    const hour12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
+    const ampm = h >= 12 ? "PM" : "AM";
+    const min = m === 0 ? "00" : "30";
+    TIME_OPTIONS.push(`${hour12}:${min} ${ampm}`);
+  }
+}
+// Add 11:59 PM as the latest end option
+TIME_OPTIONS.push("11:59 PM");
+
 const makeDefaultSchedule = (): ScheduleDay[] => [
   { day: "Monday", on: true, slots: [["6:00 PM", "8:00 PM"]] },
   { day: "Tuesday", on: true, slots: [["6:00 PM", "8:00 PM"]] },
@@ -178,6 +192,26 @@ export function CampaignWizard({
     setApptSchedule((prev) =>
       prev.map((d, i) =>
         i === dayIdx ? { ...d, slots: [...d.slots, ["9:00 AM", "5:00 PM"]] } : d
+      )
+    );
+  };
+
+  const updateSlotTime = (dayIdx: number, slotIdx: number, pos: 0 | 1, value: string) => {
+    setSchedule((prev) =>
+      prev.map((d, i) =>
+        i === dayIdx
+          ? { ...d, slots: d.slots.map((s, si) => si === slotIdx ? (pos === 0 ? [value, s[1]] : [s[0], value]) : s) }
+          : d
+      )
+    );
+  };
+
+  const updateApptSlotTime = (dayIdx: number, slotIdx: number, pos: 0 | 1, value: string) => {
+    setApptSchedule((prev) =>
+      prev.map((d, i) =>
+        i === dayIdx
+          ? { ...d, slots: d.slots.map((s, si) => si === slotIdx ? (pos === 0 ? [value, s[1]] : [s[0], value]) : s) }
+          : d
       )
     );
   };
@@ -517,10 +551,26 @@ export function CampaignWizard({
                   {day.on ? (
                     <div className="flex flex-1 flex-wrap items-center gap-1.5">
                       {day.slots.map((s, si) => (
-                        <div key={si} className="flex items-center gap-1 rounded-md border border-border-light bg-surface-input px-2 py-[3px]">
-                          <span className="text-[11px] tabular-nums text-text-primary">{s[0]}</span>
+                        <div key={si} className="flex items-center gap-1 rounded-md border border-border-light bg-surface-input px-1 py-[2px]">
+                          <select
+                            value={s[0]}
+                            onChange={(e) => updateSlotTime(dayIdx, si, 0, e.target.value)}
+                            className="appearance-none bg-transparent text-[11px] tabular-nums text-text-primary outline-none"
+                          >
+                            {TIME_OPTIONS.map((t) => (
+                              <option key={t} value={t}>{t}</option>
+                            ))}
+                          </select>
                           <span className="text-[10px] text-text-dim">→</span>
-                          <span className="text-[11px] tabular-nums text-text-primary">{s[1]}</span>
+                          <select
+                            value={s[1]}
+                            onChange={(e) => updateSlotTime(dayIdx, si, 1, e.target.value)}
+                            className="appearance-none bg-transparent text-[11px] tabular-nums text-text-primary outline-none"
+                          >
+                            {TIME_OPTIONS.map((t) => (
+                              <option key={t} value={t}>{t}</option>
+                            ))}
+                          </select>
                           {day.slots.length > 1 && (
                             <button
                               onClick={() => removeSlot(dayIdx, si)}
@@ -593,10 +643,26 @@ export function CampaignWizard({
                   {day.on ? (
                     <div className="flex flex-1 flex-wrap items-center gap-1.5">
                       {day.slots.map((s, si) => (
-                        <div key={si} className="flex items-center gap-1 rounded-md border border-border-light bg-surface-input px-2 py-[3px]">
-                          <span className="text-[11px] tabular-nums text-text-primary">{s[0]}</span>
+                        <div key={si} className="flex items-center gap-1 rounded-md border border-border-light bg-surface-input px-1 py-[2px]">
+                          <select
+                            value={s[0]}
+                            onChange={(e) => updateApptSlotTime(dayIdx, si, 0, e.target.value)}
+                            className="appearance-none bg-transparent text-[11px] tabular-nums text-text-primary outline-none"
+                          >
+                            {TIME_OPTIONS.map((t) => (
+                              <option key={t} value={t}>{t}</option>
+                            ))}
+                          </select>
                           <span className="text-[10px] text-text-dim">→</span>
-                          <span className="text-[11px] tabular-nums text-text-primary">{s[1]}</span>
+                          <select
+                            value={s[1]}
+                            onChange={(e) => updateApptSlotTime(dayIdx, si, 1, e.target.value)}
+                            className="appearance-none bg-transparent text-[11px] tabular-nums text-text-primary outline-none"
+                          >
+                            {TIME_OPTIONS.map((t) => (
+                              <option key={t} value={t}>{t}</option>
+                            ))}
+                          </select>
                           {day.slots.length > 1 && (
                             <button
                               onClick={() => removeApptSlot(dayIdx, si)}
