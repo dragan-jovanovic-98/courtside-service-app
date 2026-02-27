@@ -6,7 +6,7 @@
 function getSiteUrl(): string {
   // Prefer env var, but fall back to window.location.origin on client
   const envUrl = process.env.NEXT_PUBLIC_SITE_URL;
-  if (envUrl) return envUrl.replace(/\/+$/, ""); // strip trailing slash
+  if (envUrl) return envUrl.trim().replace(/\/+$/, ""); // strip whitespace + trailing slash
   if (typeof window !== "undefined") return window.location.origin;
   return "http://localhost:3000";
 }
