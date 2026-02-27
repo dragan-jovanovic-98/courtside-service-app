@@ -124,6 +124,16 @@ function dateToDateStr(date: Date, timezone: string): string {
 }
 
 /**
+ * Extracts "YYYY-MM-DD" from a chrono result Date using UTC methods.
+ * Chrono was given a timezone-shifted reference, so its output Date
+ * has campaign-local time in its UTC fields. Using toLocaleDateString
+ * would double-apply the timezone offset.
+ */
+function chronoDateToDateStr(date: Date): string {
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
+}
+
+/**
  * Converts a Date to "HH:MM" in the given timezone.
  */
 function dateToTimeStr(date: Date, timezone: string): string {
@@ -252,7 +262,7 @@ export function parseRequestedTime(
 
       if (chronoResult.length > 0 && chronoResult[0].start.isCertain("day")) {
         const d = chronoResult[0].start.date();
-        targetDate = dateToDateStr(d, timezone);
+        targetDate = chronoDateToDateStr(d);
       } else {
         // If it's already past this time today, use tomorrow
         const nowTime = dateToTimeStr(new Date(), timezone);
@@ -286,7 +296,7 @@ export function parseRequestedTime(
 
       if (chronoResult.length > 0 && chronoResult[0].start.isCertain("day")) {
         const d = chronoResult[0].start.date();
-        targetDate = dateToDateStr(d, timezone);
+        targetDate = chronoDateToDateStr(d);
       }
 
       return {
@@ -314,7 +324,7 @@ export function parseRequestedTime(
       const chronoResult = chrono.parse(dateOnly, ref, { forwardDate: true });
       if (chronoResult.length > 0) {
         const d = chronoResult[0].start.date();
-        targetDate = dateToDateStr(d, timezone);
+        targetDate = chronoDateToDateStr(d);
       }
     }
 
@@ -346,7 +356,12 @@ export function parseRequestedTime(
   if (results.length > 0) {
     const result = results[0];
     const startDate = result.start.date();
-    const parsedDateStr = dateToDateStr(startDate, timezone);
+
+    // IMPORTANT: chrono was given a timezone-shifted reference date (local time
+    // stuffed into a UTC Date via getReferenceDate). So chrono's output Date
+    // already represents campaign-local time in its UTC fields. We must extract
+    // hours/minutes using UTC methods to avoid double-applying the timezone offset.
+    const parsedDateStr = `${startDate.getUTCFullYear()}-${pad(startDate.getUTCMonth() + 1)}-${pad(startDate.getUTCDate())}`;
 
     // Check if we got a specific time
     const hasTime =
@@ -355,8 +370,8 @@ export function parseRequestedTime(
       /\d{1,2}:\d{2}/.test(raw);
 
     if (hasTime) {
-      // Exact date + time
-      const timeStr = dateToTimeStr(startDate, timezone);
+      // Extract time using UTC methods (chrono output is already in local frame)
+      const timeStr = `${pad(startDate.getUTCHours())}:${pad(startDate.getUTCMinutes())}`;
       const iso = buildISO(parsedDateStr, timeStr, timezone);
 
       return {
