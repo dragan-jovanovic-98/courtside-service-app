@@ -46,6 +46,7 @@ export function getOutlookOAuthUrl(): string {
       "offline_access",
     ].join(" "),
     response_mode: "query",
+    prompt: "consent", // Force consent to guarantee refresh_token is returned
   });
 
   return `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?${params.toString()}`;

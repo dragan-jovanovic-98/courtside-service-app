@@ -6,6 +6,54 @@
  * calendar-oauth-callback into a clean, extensible interface.
  */
 
+// ── Fetch with timeout + retry ─────────────────────────────────────
+
+const CALENDAR_API_TIMEOUT_MS = 5_000;
+const MAX_RETRIES = 1;
+
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number = CALENDAR_API_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    return response;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number = CALENDAR_API_TIMEOUT_MS
+): Promise<Response> {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetchWithTimeout(url, options, timeoutMs);
+      // Retry on 5xx errors
+      if (response.status >= 500 && attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+        continue;
+      }
+      return response;
+    } catch (err) {
+      if (attempt >= MAX_RETRIES) throw err;
+      // Brief backoff before retry
+      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    }
+  }
+  // Should not reach here, but satisfy TS
+  throw new Error("fetchWithRetry exhausted retries");
+}
+
 // ── Types ──────────────────────────────────────────────────────────
 
 export interface BusyPeriod {
@@ -73,7 +121,7 @@ const googleProvider: CalendarProvider = {
     dateEnd: string,
     timezone: string
   ): Promise<BusyPeriod[]> {
-    const response = await fetch(
+    const response = await fetchWithRetry(
       "https://www.googleapis.com/calendar/v3/freeBusy",
       {
         method: "POST",
@@ -131,7 +179,7 @@ const googleProvider: CalendarProvider = {
       }));
     }
 
-    const response = await fetch(
+    const response = await fetchWithRetry(
       `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
       {
         method: "POST",
@@ -182,7 +230,7 @@ const googleProvider: CalendarProvider = {
       }));
     }
 
-    const response = await fetch(
+    const response = await fetchWithRetry(
       `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
       {
         method: "PATCH",
@@ -205,7 +253,7 @@ const googleProvider: CalendarProvider = {
     calendarId: string,
     eventId: string
   ): Promise<void> {
-    const response = await fetch(
+    const response = await fetchWithRetry(
       `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
       {
         method: "DELETE",
@@ -224,7 +272,7 @@ const googleProvider: CalendarProvider = {
   async listCalendars(
     accessToken: string
   ): Promise<CalendarInfo[]> {
-    const response = await fetch(
+    const response = await fetchWithRetry(
       "https://www.googleapis.com/calendar/v3/users/me/calendarList",
       {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -269,7 +317,7 @@ const outlookProvider: CalendarProvider = {
       `&$top=100`;
 
     while (url) {
-      const response = await fetch(url, {
+      const response = await fetchWithRetry(url, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
@@ -329,7 +377,7 @@ const outlookProvider: CalendarProvider = {
       }));
     }
 
-    const response = await fetch(
+    const response = await fetchWithRetry(
       `https://graph.microsoft.com/v1.0/me/calendars/${encodeURIComponent(calendarId)}/events`,
       {
         method: "POST",
@@ -384,7 +432,7 @@ const outlookProvider: CalendarProvider = {
       }));
     }
 
-    const response = await fetch(
+    const response = await fetchWithRetry(
       `https://graph.microsoft.com/v1.0/me/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
       {
         method: "PATCH",
@@ -407,7 +455,7 @@ const outlookProvider: CalendarProvider = {
     calendarId: string,
     eventId: string
   ): Promise<void> {
-    const response = await fetch(
+    const response = await fetchWithRetry(
       `https://graph.microsoft.com/v1.0/me/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
       {
         method: "DELETE",
@@ -426,7 +474,7 @@ const outlookProvider: CalendarProvider = {
   async listCalendars(
     accessToken: string
   ): Promise<CalendarInfo[]> {
-    const response = await fetch(
+    const response = await fetchWithRetry(
       "https://graph.microsoft.com/v1.0/me/calendars",
       {
         headers: { Authorization: `Bearer ${accessToken}` },

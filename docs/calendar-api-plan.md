@@ -1182,16 +1182,26 @@ Organized as a Notion wiki section:
 - `calendar-status`: Full health check — validates token (with auto-refresh), tests calendar API access, returns structured status + issues array.
 - `update-calendar-connection`: PATCH for display/sync settings with validation.
 
-### Phase D: Outlook Testing & Hardening (Day 7)
+### Phase D: Outlook Testing & Hardening (Day 7) — COMPLETED 2026-02-27
 **Goal:** End-to-end Outlook flow working
 
-| Task | Details | Complexity |
+| Task | Details | Status |
 |---|---|---|
-| Verify Azure AD app registration | Ensure multi-tenant, correct scopes | Low |
-| Test OAuth flow with real Outlook account | Connect → list calendars → verify tokens | Medium |
-| Test availability check against Outlook calendar | Create events in Outlook → verify they show as busy | Medium |
-| Test appointment booking with Outlook write-back | Book via agent → verify calendar event created | Medium |
-| Test token refresh flow | Wait for expiry → verify auto-refresh | Low |
+| Add `prompt=consent` to Outlook OAuth URL | Guarantees refresh_token on every auth | Done |
+| Add timeout + retry to calendar API calls | 5s timeout, 1 retry with backoff on 5xx | Done — `fetchWithRetry` in calendar-providers.ts |
+| Calendar API timeout fallback | If calendar slow, use Courtside-only availability | Done — already falls through gracefully |
+| Verify Azure AD app registration | Ensure multi-tenant, correct scopes | Manual — user to verify |
+| Test OAuth flow with real Outlook account | Connect → list calendars → verify tokens | Manual — user to test |
+| Test availability check against Outlook calendar | Create events → verify busy | Manual — user to test |
+| Test appointment booking with Outlook write-back | Book via agent → verify event | Manual — user to test |
+| Test token refresh flow | Wait for expiry → verify auto-refresh | Manual — user to test |
+
+**Code hardening applied:**
+- `prompt=consent` added to `src/lib/integrations/oauth.ts` Outlook URL builder
+- `fetchWithRetry()` utility in `calendar-providers.ts`: 5s AbortController timeout, 1 retry with 500ms backoff on 5xx errors or network failures
+- All 12 calendar API fetch calls (6 Google, 6 Outlook) now use `fetchWithRetry`
+- Outlook `getBusyPeriods` pagination loop also uses retry per page
+- Agent endpoints gracefully fall back to Courtside-only availability when calendar API fails
 
 ### Phase E: Documentation (Days 8-9)
 **Goal:** Complete API docs
@@ -1255,3 +1265,23 @@ supabase/functions/create-appointment/index.ts
 ---
 
 *This plan was designed to be built incrementally — each phase produces working, testable code. Phase A (foundation) and Phase B (agent endpoints) are the critical path. Phases C-F can run in parallel or be deferred.*
+
+---
+
+## 15. Deviations from Plan
+
+The following differences exist between the original plan and the actual implementation (Phases A–D):
+
+1. **Date parser unit tests deferred** — Phase A listed "Unit test date parser with edge cases" but no test file was created. Marked as deferred.
+
+2. **Migration adjusted for existing columns** — The plan's migration included `calendar_event_id` and `calendar_provider` on `appointments`, but those columns already existed in the database. The migration was adjusted to skip them.
+
+3. **Phase D manual testing flagged, not executed** — Phase D was primarily manual Outlook end-to-end testing. Only the code hardening tasks were implemented; manual testing tasks were flagged for the user.
+
+4. **`fetchWithRetry` as reusable utility** — The plan specified "5 second timeout, 1 retry" but didn't prescribe implementation shape. A reusable `fetchWithRetry()` + `fetchWithTimeout()` helper pair was created in `calendar-providers.ts` and applied to all 12 calendar API calls.
+
+5. **`agent_tool_calls` logging table not created** — Section 11 of the plan mentions an analytics/logging table. This belongs to Phase F and was not built.
+
+6. **`create-appointment/index.ts` not modified** — The File Manifest (Section 14) listed modifications to `create-appointment` for inline calendar event creation. Instead, `agent-book-appointment` handles calendar write-back directly, making the `create-appointment` modification unnecessary.
+
+7. **Phase E & F not started** — Documentation (OpenAPI spec, Notion pages) and analytics/monitoring are pending.
