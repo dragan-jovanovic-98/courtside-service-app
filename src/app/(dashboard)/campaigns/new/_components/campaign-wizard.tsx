@@ -224,6 +224,7 @@ export function CampaignWizard({
         i === dayIdx ? { ...d, on: !d.on, slots: d.on ? [] : [["9:00 AM", "5:00 PM"]] } : d
       )
     );
+    setActivePreset(null);
   };
 
   const removeSlot = (dayIdx: number, slotIdx: number) => {
@@ -232,6 +233,7 @@ export function CampaignWizard({
         i === dayIdx ? { ...d, slots: d.slots.filter((_, si) => si !== slotIdx) } : d
       )
     );
+    setActivePreset(null);
   };
 
   const saveSlot = (dayIdx: number, slotIdx: number | null, start: string, end: string) => {
@@ -244,6 +246,7 @@ export function CampaignWizard({
         return { ...d, slots: [...d.slots, [start, end]] };
       })
     );
+    setActivePreset(null);
   };
 
   const toggleApptDay = (dayIdx: number) => {
@@ -276,6 +279,31 @@ export function CampaignWizard({
 
   // Track which popover is open: "calling-{dayIdx}" or "calling-{dayIdx}-{slotIdx}" (edit)
   const [openPopover, setOpenPopover] = useState<string | null>(null);
+
+  // Schedule presets
+  const [activePreset, setActivePreset] = useState<"working" | "after" | null>("working");
+
+  const applyPreset = (preset: "working" | "after") => {
+    const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    if (preset === "working") {
+      setSchedule(
+        days.map((day) => ({
+          day,
+          on: !["Saturday", "Sunday"].includes(day),
+          slots: ["Saturday", "Sunday"].includes(day) ? [] : [["9:00 AM", "5:00 PM"]],
+        }))
+      );
+    } else {
+      setSchedule(
+        days.map((day) => {
+          if (["Saturday", "Sunday"].includes(day)) return { day, on: false, slots: [] };
+          if (day === "Friday") return { day, on: true, slots: [["5:00 PM", "7:00 PM"]] };
+          return { day, on: true, slots: [["6:00 PM", "8:00 PM"]] };
+        })
+      );
+    }
+    setActivePreset(preset);
+  };
 
   const activeDays = schedule.filter((d) => d.on).map((d) => d.day.slice(0, 3)).join(", ");
   const apptActiveDays = apptSchedule.filter((d) => d.on).map((d) => d.day.slice(0, 3)).join(", ");
@@ -590,6 +618,32 @@ export function CampaignWizard({
           {/* Schedule */}
           <div className="mb-2.5 rounded-xl border border-border-default bg-surface-card p-4">
             <SectionLabel>Calling Schedule</SectionLabel>
+            <div className="mb-2.5 flex gap-2">
+              <button
+                onClick={() => applyPreset("working")}
+                className={cn(
+                  "rounded-lg border px-3 py-1.5 text-[11px] font-semibold transition-colors",
+                  activePreset === "working"
+                    ? "border-emerald-dark bg-emerald-bg text-emerald-light"
+                    : "border-border-default text-text-muted hover:border-text-dim hover:text-text-primary"
+                )}
+              >
+                Working Hours
+                <span className="ml-1 text-[10px] font-normal text-text-dim">9–5 Mon–Fri</span>
+              </button>
+              <button
+                onClick={() => applyPreset("after")}
+                className={cn(
+                  "rounded-lg border px-3 py-1.5 text-[11px] font-semibold transition-colors",
+                  activePreset === "after"
+                    ? "border-emerald-dark bg-emerald-bg text-emerald-light"
+                    : "border-border-default text-text-muted hover:border-text-dim hover:text-text-primary"
+                )}
+              >
+                After Hours
+                <span className="ml-1 text-[10px] font-normal text-text-dim">Evenings Mon–Fri</span>
+              </button>
+            </div>
             <div className="flex flex-col gap-1">
               {schedule.map((day, dayIdx) => (
                 <div key={day.day} className="flex items-center gap-2.5 border-b border-border-light py-1.5">
