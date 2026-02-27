@@ -75,13 +75,12 @@ function minutesToTime(totalMinutes: number): string {
   return `${pad(h)}:${pad(m)}`;
 }
 
-// JS Date.getDay() returns 0=Sun..6=Sat; schema uses 0=Mon..6=Sun
-function jsDayToSchemaDow(jsDay: number): number {
-  return jsDay === 0 ? 6 : jsDay - 1;
-}
+// DB uses 0=Sun..6=Sat — same as JS Date.getDay()
+// No conversion needed.
 
 function getDefaultSchedule(dayOfWeek: number): DaySchedule {
-  if (dayOfWeek >= 5) return { enabled: false, slots: [] }; // Sat/Sun
+  // 0=Sun, 6=Sat — weekends disabled by default
+  if (dayOfWeek === 0 || dayOfWeek === 6) return { enabled: false, slots: [] };
   return DEFAULT_BUSINESS_HOURS;
 }
 
@@ -483,9 +482,8 @@ serve(async (req) => {
 
     // ── Search each date ──
     for (const dateStr of datesToSearch) {
-      const jsDay = new Date(dateStr + "T12:00:00").getDay();
-      const schemaDow = jsDayToSchemaDow(jsDay);
-      const daySchedule = getDaySchedule(scheduleRows ?? [], schemaDow);
+      const dow = new Date(dateStr + "T12:00:00").getDay();
+      const daySchedule = getDaySchedule(scheduleRows ?? [], dow);
 
       if (!daySchedule.enabled || daySchedule.slots.length === 0) {
         continue;
@@ -551,9 +549,8 @@ serve(async (req) => {
     if (parsed.confidence === "day_only" && allAlternatives.length === 0) {
       // The specific day had no availability — check if it was because the day was disabled
       if (parsed.date) {
-        const jsDay = new Date(parsed.date + "T12:00:00").getDay();
-        const schemaDow = jsDayToSchemaDow(jsDay);
-        const daySchedule = getDaySchedule(scheduleRows ?? [], schemaDow);
+        const dow = new Date(parsed.date + "T12:00:00").getDay();
+        const daySchedule = getDaySchedule(scheduleRows ?? [], dow);
         if (!daySchedule.enabled) {
           reason = "day_not_available";
           // Search forward for alternatives
@@ -568,9 +565,8 @@ serve(async (req) => {
           }
 
           for (const dateStr of extraDates) {
-            const jsD = new Date(dateStr + "T12:00:00").getDay();
-            const schD = jsDayToSchemaDow(jsD);
-            const daySch = getDaySchedule(scheduleRows ?? [], schD);
+            const dow2 = new Date(dateStr + "T12:00:00").getDay();
+            const daySch = getDaySchedule(scheduleRows ?? [], dow2);
             if (!daySch.enabled || daySch.slots.length === 0) continue;
 
             let extraSlots = computeAvailableSlots(dateStr, durationMinutes, allBusy, daySch.slots);

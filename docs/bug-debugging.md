@@ -5,6 +5,39 @@
 
 ---
 
+## Bug #10: Day-of-Week Mapping Off by One — Zero Availability
+
+**Date:** 2026-02-27
+**Severity:** Critical (all availability checks return 0 slots for certain days)
+**Area:** `agent-check-availability` → `jsDayToSchemaDow()` conversion
+
+### Symptoms
+- `agent-check-availability` returns `{ available: false, slots_checked: 0 }` for valid weekdays
+- Monday requests always return no slots (maps to Sunday in DB)
+- Other weekdays may return slots from the wrong day's schedule
+
+### Root Cause
+The code had a `jsDayToSchemaDow()` function with an incorrect assumption:
+```typescript
+// JS Date.getDay() returns 0=Sun..6=Sat; schema uses 0=Mon..6=Sun  ← WRONG
+function jsDayToSchemaDow(jsDay: number): number {
+  return jsDay === 0 ? 6 : jsDay - 1;
+}
+```
+The comment claimed the DB schema uses 0=Monday, but the campaign wizard stores `day_of_week` using `["Sunday", "Monday", ...].indexOf(day)` — which is **0=Sunday** (same as JS). The conversion was shifting every day by -1:
+- Monday (JS 1) → looked up `day_of_week=0` → found Sunday (disabled) → 0 slots
+- Tuesday (JS 2) → looked up `day_of_week=1` → found Monday's config (wrong but same slots)
+- Saturday (JS 6) → looked up `day_of_week=5` → found Friday (enabled, wrong!)
+
+### Fix
+Removed the `jsDayToSchemaDow()` function entirely. The DB uses 0=Sun..6=Sat, same as JS `Date.getDay()`. No conversion needed. Also fixed `getDefaultSchedule()` which used `dayOfWeek >= 5` (0=Mon convention) to correctly check `dayOfWeek === 0 || dayOfWeek === 6` (0=Sun convention).
+
+### Lesson Learned
+- Verify the actual data convention in the DB before writing conversion functions. The campaign wizard clearly uses `["Sunday", "Monday", ...].indexOf()` = 0=Sunday.
+- When availability returns 0 slots, check if the day-of-week mapping is correct by comparing the search date's actual day against what `getDaySchedule` looks up.
+
+---
+
 ## Bug #9: Timezone Double-Application in Date Parser
 
 **Date:** 2026-02-27
