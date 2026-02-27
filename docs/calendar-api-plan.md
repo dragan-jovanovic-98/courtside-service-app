@@ -1168,14 +1168,19 @@ Organized as a Notion wiki section:
 - `agent-book-appointment` auto-updates lead status to `appt_set`.
 - `check-availability` (dashboard endpoint) now uses shared `calendar-providers.ts` instead of inline Google/Outlook functions.
 
-### Phase C: Dashboard Endpoints (Day 6)
+### Phase C: Dashboard Endpoints (Day 6) — COMPLETED 2026-02-27
 **Goal:** Supporting endpoints for the settings UI
 
-| Task | File | Complexity |
+| Task | File | Status |
 |---|---|---|
-| Build `list-calendars` | `supabase/functions/list-calendars/index.ts` | Low |
-| Build `calendar-status` | `supabase/functions/calendar-status/index.ts` | Low |
-| Build `update-calendar-connection` | `supabase/functions/update-calendar-connection/index.ts` | Low |
+| Build `list-calendars` | `supabase/functions/list-calendars/index.ts` | Done — 110 lines |
+| Build `calendar-status` | `supabase/functions/calendar-status/index.ts` | Done — 195 lines |
+| Build `update-calendar-connection` | `supabase/functions/update-calendar-connection/index.ts` | Done — 90 lines |
+
+**Notes:**
+- `list-calendars`: Returns calendars with linked campaign names via join query.
+- `calendar-status`: Full health check — validates token (with auto-refresh), tests calendar API access, returns structured status + issues array.
+- `update-calendar-connection`: PATCH for display/sync settings with validation.
 
 ### Phase D: Outlook Testing & Hardening (Day 7)
 **Goal:** End-to-end Outlook flow working
