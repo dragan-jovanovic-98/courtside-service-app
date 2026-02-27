@@ -28,6 +28,13 @@ import { Label } from "@/components/ui/label";
 import { StatCard } from "@/components/ui/stat-card";
 import { SectionLabel } from "@/components/ui/section-label";
 import { OutcomeRow } from "@/components/ui/outcome-row";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { ColoredBadge } from "@/components/ui/colored-badge";
 import {
@@ -761,16 +768,17 @@ function ScheduleCallbackModal({
 
           <div className="space-y-1.5">
             <Label className="text-text-muted">Duration</Label>
-            <select
-              className="w-full appearance-none rounded-lg border border-border-default bg-surface-input px-3 py-2 text-sm text-text-primary outline-none"
-              value={duration}
-              onChange={(e) => setDuration(Number(e.target.value))}
-            >
-              <option value={15}>15 minutes</option>
-              <option value={30}>30 minutes</option>
-              <option value={45}>45 minutes</option>
-              <option value={60}>1 hour</option>
-            </select>
+            <Select value={String(duration)} onValueChange={(v) => setDuration(Number(v))}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="15">15 minutes</SelectItem>
+                <SelectItem value="30">30 minutes</SelectItem>
+                <SelectItem value="45">45 minutes</SelectItem>
+                <SelectItem value="60">1 hour</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-1.5">

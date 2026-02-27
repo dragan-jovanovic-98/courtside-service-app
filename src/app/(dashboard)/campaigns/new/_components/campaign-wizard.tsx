@@ -8,6 +8,14 @@ import { Input } from "@/components/ui/input";
 import { ColoredBadge } from "@/components/ui/colored-badge";
 import { SectionLabel } from "@/components/ui/section-label";
 import { cn } from "@/lib/utils";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Combobox } from "@/components/ui/combobox";
 import { callEdgeFunction } from "@/lib/supabase/edge-functions";
 import { addLeadsFromContacts } from "@/lib/actions/leads";
 import type { ContactForSelection } from "@/types";
@@ -118,28 +126,28 @@ function SlotPopover({
       <div className="flex items-center gap-2">
         <div>
           <div className="mb-1 text-[10px] text-text-dim">Start</div>
-          <select
+          <Combobox
+            options={TIME_OPTIONS.map((t) => ({ value: t, label: t }))}
             value={start}
-            onChange={(e) => setStart(e.target.value)}
-            className="rounded-md border border-border-default bg-surface-input px-2 py-1.5 text-xs text-text-primary outline-none"
-          >
-            {TIME_OPTIONS.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
+            onValueChange={setStart}
+            placeholder="Start..."
+            searchPlaceholder="Search time..."
+            size="sm"
+            className="w-[110px]"
+          />
         </div>
         <span className="mt-4 text-text-dim">→</span>
         <div>
           <div className="mb-1 text-[10px] text-text-dim">End</div>
-          <select
+          <Combobox
+            options={TIME_OPTIONS.map((t) => ({ value: t, label: t }))}
             value={end}
-            onChange={(e) => setEnd(e.target.value)}
-            className="rounded-md border border-border-default bg-surface-input px-2 py-1.5 text-xs text-text-primary outline-none"
-          >
-            {TIME_OPTIONS.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
+            onValueChange={setEnd}
+            placeholder="End..."
+            searchPlaceholder="Search time..."
+            size="sm"
+            className="w-[110px]"
+          />
         </div>
         <button
           onClick={() => onSave(start, end)}
@@ -192,7 +200,7 @@ export function CampaignWizard({
   const [endDate, setEndDate] = useState("");
 
   // Step 3: Appointment calendar + availability
-  const [calendarConnectionId, setCalendarConnectionId] = useState<string>("");
+  const [calendarConnectionId, setCalendarConnectionId] = useState<string>("default");
   const [apptSchedule, setApptSchedule] = useState<ScheduleDay[]>(makeDefaultApptSchedule);
 
   // Submission state
@@ -344,7 +352,7 @@ export function CampaignWizard({
           timezone,
           end_date: endDate || null,
           schedules: schedulesPayload,
-          calendar_connection_id: calendarConnectionId || null,
+          calendar_connection_id: calendarConnectionId === "default" ? null : calendarConnectionId,
           appointment_schedules: apptSchedulesPayload,
         }
       );
@@ -731,18 +739,19 @@ export function CampaignWizard({
             <p className="mb-2 text-[11px] text-text-dim">
               Select which calendar to check for availability and book appointments to.
             </p>
-            <select
-              value={calendarConnectionId}
-              onChange={(e) => setCalendarConnectionId(e.target.value)}
-              className="w-full appearance-none rounded-lg border border-border-default bg-surface-input px-3 py-2 text-sm text-text-primary outline-none"
-            >
-              <option value="">Courtside Calendar (default)</option>
-              {calendarOptions.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
+            <Select value={calendarConnectionId} onValueChange={setCalendarConnectionId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Courtside Calendar (default)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Courtside Calendar (default)</SelectItem>
+                {calendarOptions.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Appointment Availability */}
@@ -869,16 +878,19 @@ export function CampaignWizard({
           <div className="mb-2.5 grid grid-cols-2 gap-2.5">
             <div className="rounded-xl border border-border-default bg-surface-card p-4">
               <div className="mb-1 text-[11px] text-text-dim">Timezone</div>
-              <select
+              <Combobox
+                options={[
+                  { value: "America/Toronto", label: "EST — Eastern" },
+                  { value: "America/Chicago", label: "CST — Central" },
+                  { value: "America/Denver", label: "MST — Mountain" },
+                  { value: "America/Los_Angeles", label: "PST — Pacific" },
+                ]}
                 value={timezone}
-                onChange={(e) => setTimezone(e.target.value)}
-                className="w-full appearance-none bg-transparent text-sm font-bold text-text-primary outline-none"
-              >
-                <option value="America/Toronto">EST — Eastern</option>
-                <option value="America/Chicago">CST — Central</option>
-                <option value="America/Denver">MST — Mountain</option>
-                <option value="America/Los_Angeles">PST — Pacific</option>
-              </select>
+                onValueChange={setTimezone}
+                placeholder="Select timezone..."
+                searchPlaceholder="Search timezones..."
+                size="sm"
+              />
             </div>
             <div className="rounded-xl border border-border-default bg-surface-card p-4">
               <div className="mb-1 text-[11px] text-text-dim">End Date</div>
@@ -916,7 +928,7 @@ export function CampaignWizard({
                 ["Retries", `${maxRetries} per lead`],
                 ["Timezone", timezone.split("/")[1]?.replace("_", " ") ?? timezone],
                 ["End Date", endDate || "None"],
-                ["Appt Calendar", calendarConnectionId ? calendarOptions.find((c) => c.id === calendarConnectionId)?.label ?? "External" : "Courtside"],
+                ["Appt Calendar", calendarConnectionId && calendarConnectionId !== "default" ? calendarOptions.find((c) => c.id === calendarConnectionId)?.label ?? "External" : "Courtside"],
                 ["Appt Hours", apptActiveDays || "None"],
               ] as const).map(([label, val]) => (
                 <div key={label}>

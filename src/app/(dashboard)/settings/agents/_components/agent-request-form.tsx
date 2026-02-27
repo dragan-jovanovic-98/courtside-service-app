@@ -4,6 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { callEdgeFunction } from "@/lib/supabase/edge-functions";
 import Link from "next/link";
 
@@ -246,21 +253,22 @@ function FormSelect({
       <label className="mb-1 block text-xs font-medium text-text-dim">
         {label}
       </label>
-      <select
-        name={name}
-        defaultValue={defaultValue}
-        className="w-full appearance-none rounded-lg border border-border-default bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-[13px] text-text-primary outline-none"
-      >
-        {options.map((o) => {
-          const val = typeof o === "string" ? o : o.value;
-          const lbl = typeof o === "string" ? o : o.label;
-          return (
-            <option key={val} value={val}>
-              {lbl}
-            </option>
-          );
-        })}
-      </select>
+      <Select name={name} defaultValue={defaultValue}>
+        <SelectTrigger>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((o) => {
+            const val = typeof o === "string" ? o : o.value;
+            const lbl = typeof o === "string" ? o : o.label;
+            return (
+              <SelectItem key={val} value={val}>
+                {lbl}
+              </SelectItem>
+            );
+          })}
+        </SelectContent>
+      </Select>
     </div>
   );
 }

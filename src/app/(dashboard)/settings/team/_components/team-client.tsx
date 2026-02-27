@@ -5,6 +5,13 @@ import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ColoredBadge } from "@/components/ui/colored-badge";
 import { Modal } from "@/components/ui/modal";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { inviteTeamMember, removeTeamMember } from "@/lib/actions/settings";
 import { fullName } from "@/lib/format";
 import type { User } from "@/types";
@@ -146,13 +153,15 @@ export function TeamClient({ members }: { members: User[] }) {
             <label className="mb-1 block text-xs font-medium text-text-dim">
               Role
             </label>
-            <select
-              name="role"
-              className="w-full appearance-none rounded-lg border border-border-default bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-[13px] text-text-primary outline-none"
-            >
-              <option value="member">Member</option>
-              <option value="admin">Admin</option>
-            </select>
+            <Select name="role" defaultValue="member">
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="member">Member</SelectItem>
+                <SelectItem value="admin">Admin</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="flex gap-2.5">
             <Button

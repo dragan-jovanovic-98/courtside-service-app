@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SectionLabel } from "@/components/ui/section-label";
+import { Combobox } from "@/components/ui/combobox";
 import { updateProfile, updateNotificationPreferences } from "@/lib/actions/settings";
 import type { User, Organization, NotificationPreference, Json } from "@/types";
 
@@ -279,25 +280,20 @@ function SettingsSelect({
   defaultValue?: string;
   options: { value: string; label: string }[];
 }) {
+  const [value, setValue] = useState(defaultValue ?? "");
   return (
     <div className="mb-3.5">
       <label className="mb-1 block text-xs font-medium text-text-dim">
         {label}
       </label>
-      <select
-        name={name}
-        defaultValue={defaultValue}
-        className="w-full appearance-none rounded-lg border border-border-default bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-[13px] text-text-primary outline-none"
-      >
-        <option value="" disabled>
-          Select timezone...
-        </option>
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
+      <input type="hidden" name={name} value={value} />
+      <Combobox
+        options={options}
+        value={value}
+        onValueChange={setValue}
+        placeholder="Select timezone..."
+        searchPlaceholder="Search timezones..."
+      />
     </div>
   );
 }

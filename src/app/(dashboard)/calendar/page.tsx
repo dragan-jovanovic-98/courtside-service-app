@@ -23,12 +23,19 @@ export default async function CalendarPage({
     year: "numeric",
   });
 
-  const calendarSources = calendarConnections.map((cc) => ({
-    id: cc.id,
-    name: cc.calendar_name ?? "Calendar",
-    provider: (cc.integrations as { service_name: string } | null)?.service_name ?? "unknown",
-    color: cc.color ?? "#60a5fa",
-  }));
+  const calendarSources = calendarConnections.map((cc) => {
+    const integration = cc.integrations as { service_name: string; account_email?: string } | null;
+    const rawName = cc.calendar_name ?? "Calendar";
+    const displayName = rawName === "Calendar" && integration?.account_email
+      ? integration.account_email
+      : rawName;
+    return {
+      id: cc.id,
+      name: displayName,
+      provider: integration?.service_name ?? "unknown",
+      color: cc.color ?? "#60a5fa",
+    };
+  });
 
   return (
     <CalendarClient

@@ -30,10 +30,14 @@ export default async function NewCampaignPage() {
     description: a.purpose_description ?? "",
   }));
 
-  const calendarOptions = calendarConnections.map((cc) => ({
-    id: cc.id,
-    label: `${cc.calendar_name} (${(cc.integrations as { service_name: string } | null)?.service_name === "google" ? "Google" : "Outlook"})`,
-  }));
+  const calendarOptions = calendarConnections.map((cc) => {
+    const integration = cc.integrations as { service_name: string; account_email?: string } | null;
+    const provider = integration?.service_name === "google" ? "Google" : "Outlook";
+    const displayName = cc.calendar_name === "Calendar" && integration?.account_email
+      ? integration.account_email
+      : cc.calendar_name;
+    return { id: cc.id, label: `${displayName} (${provider})` };
+  });
 
   const campaignList = (campaignsRes.data ?? []).map((c) => ({
     id: c.id,

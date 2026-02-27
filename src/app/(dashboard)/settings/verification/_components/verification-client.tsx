@@ -7,6 +7,14 @@ import { Button } from "@/components/ui/button";
 import { SectionLabel } from "@/components/ui/section-label";
 import { cn } from "@/lib/utils";
 import { callEdgeFunction } from "@/lib/supabase/edge-functions";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 
 const provinces = ["Alberta", "British Columbia", "Manitoba", "New Brunswick", "Newfoundland", "Nova Scotia", "Ontario", "PEI", "Quebec", "Saskatchewan"];
 const usStates = ["Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming"];
@@ -460,16 +468,16 @@ export function VerificationClient({ verification }: { verification: Verificatio
 
                 <div className="mb-3.5">
                   <label className="mb-1 block text-xs font-medium text-text-dim">Registration Type</label>
-                  <select
-                    value={regType}
-                    onChange={(e) => { setRegType(e.target.value); setFieldErrors({}); }}
-                    className="w-full appearance-none rounded-lg border border-border-default bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-[13px] text-text-primary outline-none"
-                  >
-                    <option value="" disabled>Select registration type...</option>
-                    {regTypeOptions.map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </select>
+                  <Select value={regType} onValueChange={(v) => { setRegType(v); setFieldErrors({}); }}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select registration type..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {regTypeOptions.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   {fieldErrors.registration_type && (
                     <p className="mt-1 text-[11px] text-red-light">{fieldErrors.registration_type}</p>
                   )}
@@ -648,18 +656,34 @@ function VSelect({
   defaultValue: string;
   options: string[];
 }) {
+  const isLongList = options.length > 15;
+  const [value, setValue] = useState(defaultValue);
+  const comboboxOptions: ComboboxOption[] = options.map((o) => ({ value: o, label: o }));
+
   return (
     <div className="mb-3.5">
       <label className="mb-1 block text-xs font-medium text-text-dim">{label}</label>
-      <select
-        name={name}
-        defaultValue={defaultValue}
-        className="w-full appearance-none rounded-lg border border-border-default bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-[13px] text-text-primary outline-none"
-      >
-        {options.map((o) => (
-          <option key={o} value={o}>{o}</option>
-        ))}
-      </select>
+      <input type="hidden" name={name} value={value} />
+      {isLongList ? (
+        <Combobox
+          options={comboboxOptions}
+          value={value}
+          onValueChange={setValue}
+          placeholder={`Select ${label.toLowerCase()}...`}
+          searchPlaceholder="Search..."
+        />
+      ) : (
+        <Select value={value} onValueChange={setValue}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((o) => (
+              <SelectItem key={o} value={o}>{o}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
     </div>
   );
 }

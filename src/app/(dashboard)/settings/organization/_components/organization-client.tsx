@@ -3,6 +3,14 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { SectionLabel } from "@/components/ui/section-label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Combobox } from "@/components/ui/combobox";
 import { updateOrganization } from "@/lib/actions/settings";
 import type { Organization } from "@/types";
 
@@ -78,6 +86,7 @@ export function OrganizationClient({ org }: { org: Organization | null }) {
         defaultValue={org?.timezone ?? ""}
         options={TIMEZONE_OPTIONS}
         placeholder="Select timezone..."
+        searchable
       />
       <Button
         type="submit"
@@ -119,32 +128,44 @@ function SettingsSelect({
   defaultValue,
   options,
   placeholder,
+  searchable = false,
 }: {
   label: string;
   name: string;
   defaultValue?: string;
   options: { value: string; label: string }[];
   placeholder?: string;
+  searchable?: boolean;
 }) {
+  const [value, setValue] = useState(defaultValue ?? "");
   return (
     <div className="mb-3.5">
       <label className="mb-1 block text-xs font-medium text-text-dim">
         {label}
       </label>
-      <select
-        name={name}
-        defaultValue={defaultValue}
-        className="w-full appearance-none rounded-lg border border-border-default bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-[13px] text-text-primary outline-none"
-      >
-        <option value="" disabled>
-          {placeholder ?? "Select..."}
-        </option>
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
+      <input type="hidden" name={name} value={value} />
+      {searchable ? (
+        <Combobox
+          options={options}
+          value={value}
+          onValueChange={setValue}
+          placeholder={placeholder ?? "Select..."}
+          searchPlaceholder="Search..."
+        />
+      ) : (
+        <Select value={value} onValueChange={setValue}>
+          <SelectTrigger>
+            <SelectValue placeholder={placeholder ?? "Select..."} />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
     </div>
   );
 }

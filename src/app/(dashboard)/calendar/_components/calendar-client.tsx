@@ -16,6 +16,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SectionLabel } from "@/components/ui/section-label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { callEdgeFunction } from "@/lib/supabase/edge-functions";
 import type { CalendarAppointmentData } from "@/types";
@@ -56,7 +63,7 @@ function NewAppointmentModal({
   const [dateTime, setDateTime] = useState(initialDate);
   const [duration, setDuration] = useState(30);
   const [notes, setNotes] = useState("");
-  const [calendarConnectionId, setCalendarConnectionId] = useState("");
+  const [calendarConnectionId, setCalendarConnectionId] = useState("none");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,7 +85,7 @@ function NewAppointmentModal({
       title: title.trim(),
       notes: notes.trim() || null,
       is_manual: true,
-      calendar_connection_id: calendarConnectionId || null,
+      calendar_connection_id: calendarConnectionId === "none" ? null : calendarConnectionId,
     });
 
     setLoading(false);
@@ -122,18 +129,19 @@ function NewAppointmentModal({
             </div>
             <div className="space-y-1.5">
               <Label className="text-text-muted">Duration</Label>
-              <select
-                value={duration}
-                onChange={(e) => setDuration(Number(e.target.value))}
-                className="w-full appearance-none rounded-lg border border-border-default bg-surface-input px-3 py-2 text-sm text-text-primary outline-none"
-              >
-                <option value={15}>15 min</option>
-                <option value={30}>30 min</option>
-                <option value={45}>45 min</option>
-                <option value={60}>1 hour</option>
-                <option value={90}>1.5 hours</option>
-                <option value={120}>2 hours</option>
-              </select>
+              <Select value={String(duration)} onValueChange={(v) => setDuration(Number(v))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="15">15 min</SelectItem>
+                  <SelectItem value="30">30 min</SelectItem>
+                  <SelectItem value="45">45 min</SelectItem>
+                  <SelectItem value="60">1 hour</SelectItem>
+                  <SelectItem value="90">1.5 hours</SelectItem>
+                  <SelectItem value="120">2 hours</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
@@ -151,18 +159,19 @@ function NewAppointmentModal({
           {calendarSources.length > 0 && (
             <div className="space-y-1.5">
               <Label className="text-text-muted">Push to Calendar</Label>
-              <select
-                value={calendarConnectionId}
-                onChange={(e) => setCalendarConnectionId(e.target.value)}
-                className="w-full appearance-none rounded-lg border border-border-default bg-surface-input px-3 py-2 text-sm text-text-primary outline-none"
-              >
-                <option value="">None (Courtside only)</option>
-                {calendarSources.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.provider === "google" ? "Google" : "Outlook"})
-                  </option>
-                ))}
-              </select>
+              <Select value={calendarConnectionId} onValueChange={setCalendarConnectionId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="None (Courtside only)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None (Courtside only)</SelectItem>
+                  {calendarSources.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name} ({c.provider === "google" ? "Google" : "Outlook"})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           )}
 

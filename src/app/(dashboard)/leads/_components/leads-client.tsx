@@ -29,6 +29,13 @@ import { ColoredBadge } from "@/components/ui/colored-badge";
 import { SectionLabel } from "@/components/ui/section-label";
 import { DropdownSelect } from "@/components/ui/dropdown-select";
 import { EmptyState } from "@/components/ui/empty-state";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
   type BadgeColor,
@@ -175,17 +182,18 @@ function ImportModal({
                 No campaigns found. Create a campaign first.
               </p>
             ) : (
-              <select
-                className="w-full appearance-none rounded-lg border border-border-default bg-surface-input px-3 py-2 text-sm text-text-primary outline-none"
-                value={campaignId}
-                onChange={(e) => setCampaignId(e.target.value)}
-              >
-                {campaigns.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+              <Select value={campaignId} onValueChange={setCampaignId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select campaign..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {campaigns.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
           </div>
 
@@ -323,17 +331,18 @@ function AddLeadModal({
                 No campaigns found. Create a campaign first.
               </p>
             ) : (
-              <select
-                className="w-full appearance-none rounded-lg border border-border-default bg-surface-input px-3 py-2 text-sm text-text-primary outline-none"
-                value={campaignId}
-                onChange={(e) => setCampaignId(e.target.value)}
-              >
-                {campaigns.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+              <Select value={campaignId} onValueChange={setCampaignId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select campaign..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {campaigns.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
           </div>
 
@@ -496,17 +505,18 @@ function CrmImportModal({
                   No campaigns found. Create a campaign first.
                 </p>
               ) : (
-                <select
-                  className="w-full appearance-none rounded-lg border border-border-default bg-surface-input px-3 py-2 text-sm text-text-primary outline-none"
-                  value={campaignId}
-                  onChange={(e) => setCampaignId(e.target.value)}
-                >
-                  {campaigns.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                <Select value={campaignId} onValueChange={setCampaignId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select campaign..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {campaigns.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
             </div>
 
@@ -747,20 +757,24 @@ export function LeadsClient({
                 </Button>
               )}
 
-              <select
-                className="w-full appearance-none rounded-lg border border-border-default bg-surface-input px-2.5 py-2 text-xs text-text-muted outline-none"
+              <Select
                 defaultValue={lead.status}
-                onChange={(e) => handleStatusChange(e.target.value)}
+                onValueChange={handleStatusChange}
               >
-                {[...STATUSES].map((s) => (
-                  <option
-                    key={s}
-                    value={s.toLowerCase().replace(/ /g, "_")}
-                  >
-                    {s}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger size="sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[...STATUSES].map((s) => (
+                    <SelectItem
+                      key={s}
+                      value={s.toLowerCase().replace(/ /g, "_")}
+                    >
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             {/* Action buttons */}

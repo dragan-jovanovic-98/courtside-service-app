@@ -21,21 +21,32 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { callEdgeFunction } from "@/lib/supabase/edge-functions";
+import { CampaignEditModal } from "./campaign-edit-modal";
 import type { CampaignWithAgent } from "@/types";
+
+type AgentOption = { id: string; name: string };
+type CalendarOption = { id: string; label: string };
 
 const statusFilters = ["all", "active", "paused", "draft", "completed", "archived"] as const;
 
 export function CampaignsClient({
   campaigns,
   isVerified = false,
+  agents = [],
+  calendarOptions = [],
 }: {
   campaigns: CampaignWithAgent[];
   isVerified?: boolean;
+  agents?: AgentOption[];
+  calendarOptions?: CalendarOption[];
 }) {
   const router = useRouter();
   const [filter, setFilter] = useState<string>("all");
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [editCampaignId, setEditCampaignId] = useState<string | null>(null);
+
+  const editCampaign = campaigns.find((c) => c.id === editCampaignId) ?? null;
 
   // "All" tab excludes archived campaigns
   const nonArchived = campaigns.filter((c) => c.status !== "archived");
@@ -193,8 +204,9 @@ export function CampaignsClient({
             return (
               <div
                 key={c.id}
+                onClick={() => setEditCampaignId(c.id)}
                 className={cn(
-                  "rounded-xl border border-border-default bg-surface-card p-4 transition-all hover:bg-surface-card-hover",
+                  "cursor-pointer rounded-xl border border-border-default bg-surface-card p-4 transition-all hover:bg-surface-card-hover",
                   isArchived && "opacity-50"
                 )}
               >
@@ -221,7 +233,7 @@ export function CampaignsClient({
                     </ColoredBadge>
                   </div>
                   {!isArchived && (
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -418,6 +430,19 @@ export function CampaignsClient({
           </div>
         )}
       </div>
+      )}
+
+      {/* Edit / Detail Modal */}
+      {editCampaign && (
+        <CampaignEditModal
+          campaign={editCampaign}
+          agents={agents}
+          calendarOptions={calendarOptions}
+          open={!!editCampaignId}
+          onOpenChange={(open) => {
+            if (!open) setEditCampaignId(null);
+          }}
+        />
       )}
     </div>
   );

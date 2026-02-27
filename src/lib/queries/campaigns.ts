@@ -21,6 +21,28 @@ export async function getCampaigns({
   return (data as CampaignWithAgent[]) ?? [];
 }
 
+export async function getCampaignSchedules(campaignId: string) {
+  const supabase = await createClient();
+
+  const [schedulesRes, apptSchedulesRes] = await Promise.all([
+    supabase
+      .from("campaign_schedules")
+      .select("*")
+      .eq("campaign_id", campaignId)
+      .order("day_of_week"),
+    supabase
+      .from("campaign_appointment_schedules")
+      .select("*")
+      .eq("campaign_id", campaignId)
+      .order("day_of_week"),
+  ]);
+
+  return {
+    schedules: schedulesRes.data ?? [],
+    appointmentSchedules: apptSchedulesRes.data ?? [],
+  };
+}
+
 export async function getCampaignById(
   id: string
 ): Promise<CampaignWithAgent | null> {
