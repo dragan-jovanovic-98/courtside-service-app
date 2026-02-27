@@ -1645,7 +1645,7 @@ export type Database = {
         | "not_interested"
         | "wrong_number"
         | "dnc"
-      campaign_status: "draft" | "active" | "paused" | "completed"
+      campaign_status: "draft" | "active" | "paused" | "completed" | "archived"
       lead_status:
         | "new"
         | "contacted"
@@ -1815,7 +1815,7 @@ export const Constants = {
         "wrong_number",
         "dnc",
       ],
-      campaign_status: ["draft", "active", "paused", "completed"],
+      campaign_status: ["draft", "active", "paused", "completed", "archived"],
       lead_status: [
         "new",
         "contacted",

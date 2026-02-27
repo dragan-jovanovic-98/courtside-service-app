@@ -4,13 +4,14 @@ import { createUserClient } from "../_shared/supabase-client.ts";
 import { jsonResponse, errorResponse } from "../_shared/response.ts";
 import { getAuthContext } from "../_shared/auth.ts";
 
-type CampaignStatus = "draft" | "active" | "paused" | "completed";
+type CampaignStatus = "draft" | "active" | "paused" | "completed" | "archived";
 
 const VALID_TRANSITIONS: Record<CampaignStatus, CampaignStatus[]> = {
   draft: ["active"],
   active: ["paused", "completed"],
-  paused: ["active", "completed"],
-  completed: [],
+  paused: ["active", "completed", "archived"],
+  completed: ["archived"],
+  archived: [],
 };
 
 serve(async (req) => {
@@ -40,6 +41,7 @@ serve(async (req) => {
       "active",
       "paused",
       "completed",
+      "archived",
     ];
     if (!validStatuses.includes(status)) {
       return errorResponse(

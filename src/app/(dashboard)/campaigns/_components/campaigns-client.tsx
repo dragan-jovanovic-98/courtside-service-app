@@ -3,16 +3,27 @@
 import { useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Pause, Play, Megaphone } from "lucide-react";
+import { Plus, Pause, Play, Megaphone, Trash2, Archive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ColoredBadge } from "@/components/ui/colored-badge";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { EmptyState } from "@/components/ui/empty-state";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { callEdgeFunction } from "@/lib/supabase/edge-functions";
 import type { CampaignWithAgent } from "@/types";
 
-const statusFilters = ["all", "active", "paused", "draft", "completed"] as const;
+const statusFilters = ["all", "active", "paused", "draft", "completed", "archived"] as const;
 
 export function CampaignsClient({
   campaigns,
@@ -26,21 +37,42 @@ export function CampaignsClient({
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
+  // "All" tab excludes archived campaigns
+  const nonArchived = campaigns.filter((c) => c.status !== "archived");
   const list =
     filter === "all"
-      ? campaigns
+      ? nonArchived
       : campaigns.filter((c) => c.status === filter);
-  const totalBookings = campaigns.reduce((s, c) => s + c.bookings, 0);
-  const totalLeads = campaigns.reduce((s, c) => s + c.total_leads, 0);
 
-  const handleStatusChange = async (campaignId: string, status: "active" | "paused") => {
+  // Stats exclude archived
+  const totalBookings = nonArchived.reduce((s, c) => s + c.bookings, 0);
+  const totalLeads = nonArchived.reduce((s, c) => s + c.total_leads, 0);
+
+  const handleStatusChange = async (campaignId: string, status: "active" | "paused" | "archived") => {
     setBusyIds((prev) => new Set(prev).add(campaignId));
     const { error } = await callEdgeFunction("update-campaign-status", {
       campaign_id: campaignId,
       status,
     });
     if (error) {
-      alert(`Failed to ${status === "active" ? "resume" : "pause"} campaign: ${error}`);
+      const label = status === "active" ? "resume" : status === "paused" ? "pause" : "archive";
+      alert(`Failed to ${label} campaign: ${error}`);
+    }
+    setBusyIds((prev) => {
+      const next = new Set(prev);
+      next.delete(campaignId);
+      return next;
+    });
+    router.refresh();
+  };
+
+  const handleDelete = async (campaignId: string) => {
+    setBusyIds((prev) => new Set(prev).add(campaignId));
+    const { error } = await callEdgeFunction("delete-campaign", {
+      campaign_id: campaignId,
+    });
+    if (error) {
+      alert(`Failed to delete campaign: ${error}`);
     }
     setBusyIds((prev) => {
       const next = new Set(prev);
@@ -85,13 +117,13 @@ export function CampaignsClient({
         </Button>
       </div>
 
-      {/* Stats */}
+      {/* Stats (exclude archived) */}
       <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-4">
         {(
           [
-            [campaigns.length, "Total", "text-text-primary"],
+            [nonArchived.length, "Total", "text-text-primary"],
             [
-              campaigns.filter((c) => c.status === "active").length,
+              nonArchived.filter((c) => c.status === "active").length,
               "Active",
               "text-emerald-light",
             ],
@@ -154,11 +186,17 @@ export function CampaignsClient({
                 ? Math.round((c.calls_connected / c.calls_made) * 100) + "%"
                 : "—";
             const isBusy = busyIds.has(c.id);
+            const isArchived = c.status === "archived";
+            const canDelete = c.status === "draft" && c.calls_made === 0;
+            const canArchive = c.status === "paused" || c.status === "completed";
 
             return (
               <div
                 key={c.id}
-                className="rounded-xl border border-border-default bg-surface-card p-4 transition-all hover:bg-surface-card-hover"
+                className={cn(
+                  "rounded-xl border border-border-default bg-surface-card p-4 transition-all hover:bg-surface-card-hover",
+                  isArchived && "opacity-50"
+                )}
               >
                 {/* Top row */}
                 <div className="mb-1.5 flex items-center justify-between">
@@ -174,56 +212,137 @@ export function CampaignsClient({
                           ? "amber"
                           : c.status === "completed"
                           ? "blue"
+                          : c.status === "archived"
+                          ? "default"
                           : "default"
                       }
                     >
                       {c.status.charAt(0).toUpperCase() + c.status.slice(1)}
                     </ColoredBadge>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="gap-1 px-2 text-[10px]"
-                      disabled={isBusy}
-                      onClick={() => fileInputRefs.current[c.id]?.click()}
-                    >
-                      <Plus size={12} /> Leads
-                    </Button>
-                    <input
-                      ref={(el) => { fileInputRefs.current[c.id] = el; }}
-                      type="file"
-                      accept=".csv"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handleImportLeads(c.id, file);
-                        e.target.value = "";
-                      }}
-                    />
-                    {c.status === "active" && (
+                  {!isArchived && (
+                    <div className="flex items-center gap-1">
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="px-2"
+                        className="gap-1 px-2 text-[10px]"
                         disabled={isBusy}
-                        onClick={() => handleStatusChange(c.id, "paused")}
+                        onClick={() => fileInputRefs.current[c.id]?.click()}
                       >
-                        <Pause size={12} />
+                        <Plus size={12} /> Leads
                       </Button>
-                    )}
-                    {c.status === "paused" && (
-                      <Button
-                        size="sm"
-                        className="bg-emerald-dark px-2 text-white hover:bg-emerald-dark/90"
-                        disabled={isBusy || !isVerified}
-                        title={!isVerified ? "Complete verification to activate campaigns" : undefined}
-                        onClick={() => handleStatusChange(c.id, "active")}
-                      >
-                        <Play size={12} />
-                      </Button>
-                    )}
-                  </div>
+                      <input
+                        ref={(el) => { fileInputRefs.current[c.id] = el; }}
+                        type="file"
+                        accept=".csv"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleImportLeads(c.id, file);
+                          e.target.value = "";
+                        }}
+                      />
+                      {c.status === "active" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="px-2"
+                          disabled={isBusy}
+                          onClick={() => handleStatusChange(c.id, "paused")}
+                        >
+                          <Pause size={12} />
+                        </Button>
+                      )}
+                      {c.status === "paused" && (
+                        <Button
+                          size="sm"
+                          className="bg-emerald-dark px-2 text-white hover:bg-emerald-dark/90"
+                          disabled={isBusy || !isVerified}
+                          title={!isVerified ? "Complete verification to activate campaigns" : undefined}
+                          onClick={() => handleStatusChange(c.id, "active")}
+                        >
+                          <Play size={12} />
+                        </Button>
+                      )}
+
+                      {/* Archive button for paused/completed */}
+                      {canArchive && (
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="px-2 text-text-dim hover:text-text-muted"
+                              disabled={isBusy}
+                            >
+                              <Archive size={12} />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent className="border-border-default bg-[#141820]">
+                            <AlertDialogHeader>
+                              <AlertDialogTitle className="text-text-primary">
+                                Archive Campaign
+                              </AlertDialogTitle>
+                              <AlertDialogDescription className="text-text-muted">
+                                &ldquo;{c.name}&rdquo; will be hidden from your main campaign list.
+                                You can still view it under the &ldquo;Archived&rdquo; filter. All
+                                call history and lead data will be preserved.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel className="border-border-default bg-transparent text-text-muted hover:bg-surface-card-hover hover:text-text-primary">
+                                Cancel
+                              </AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-[rgba(255,255,255,0.1)] text-text-primary hover:bg-[rgba(255,255,255,0.15)]"
+                                onClick={() => handleStatusChange(c.id, "archived")}
+                              >
+                                Archive
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      )}
+
+                      {/* Delete button for draft campaigns with 0 calls */}
+                      {canDelete && (
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="px-2 text-red-light/70 hover:text-red-light"
+                              disabled={isBusy}
+                            >
+                              <Trash2 size={12} />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent className="border-border-default bg-[#141820]">
+                            <AlertDialogHeader>
+                              <AlertDialogTitle className="text-text-primary">
+                                Delete Campaign
+                              </AlertDialogTitle>
+                              <AlertDialogDescription className="text-text-muted">
+                                This will permanently delete &ldquo;{c.name}&rdquo; and all its
+                                leads. Contacts will not be deleted. This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel className="border-border-default bg-transparent text-text-muted hover:bg-surface-card-hover hover:text-text-primary">
+                                Cancel
+                              </AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-red-light/20 text-red-light hover:bg-red-light/30"
+                                onClick={() => handleDelete(c.id)}
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="mb-2.5 text-[11px] text-text-dim">
