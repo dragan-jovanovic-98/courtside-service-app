@@ -46,7 +46,7 @@ const STATUS_COLORS: Record<string, BadgeColor> = {
   bad_lead: "red",
 };
 
-const STEPS = ["Select Agent", "Add Leads", "Schedule", "Review"];
+const STEPS = ["Select Agent", "Add Leads", "Schedule", "Settings", "Review"];
 
 // Generate time options in 30-min increments (6:00 AM → 11:30 PM)
 const TIME_OPTIONS: string[] = [];
@@ -430,7 +430,7 @@ export function CampaignWizard({
               {step > i + 1 ? <Check size={12} /> : <span>{i + 1}</span>}
               <span>{s}</span>
             </div>
-            {i < 3 && <div className="h-px w-4 bg-border-default" />}
+            {i < 4 && <div className="h-px w-4 bg-border-default" />}
           </div>
         ))}
       </div>
@@ -613,9 +613,9 @@ export function CampaignWizard({
       {/* Step 3: Schedule */}
       {step === 3 && (
         <div>
-          <p className="mb-4 text-[13px] text-text-muted">Set calling schedule, rules, and optional end date.</p>
+          <p className="mb-4 text-[13px] text-text-muted">Set when the AI calls leads and books appointments.</p>
 
-          {/* Schedule */}
+          {/* Calling Schedule */}
           <div className="mb-2.5 rounded-xl border border-border-default bg-surface-card p-4">
             <SectionLabel>Calling Schedule</SectionLabel>
             <div className="mb-2.5 flex gap-2">
@@ -827,58 +827,6 @@ export function CampaignWizard({
             </div>
           </div>
 
-          {/* Rules */}
-          <div className="mb-2.5 grid grid-cols-4 gap-2">
-            <div className="rounded-xl border border-border-default bg-surface-card p-3">
-              <div className="text-[11px] text-text-dim">Daily Limit</div>
-              <input
-                type="number"
-                value={dailyLimit}
-                onChange={(e) => setDailyLimit(Number(e.target.value) || 0)}
-                className="mt-0.5 w-full bg-transparent text-lg font-bold text-text-primary outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-              />
-              <div className="text-[9px] text-text-faint">calls/day</div>
-            </div>
-            <div className="rounded-xl border border-border-default bg-surface-card p-3">
-              <div className="text-[11px] text-text-dim">Retries</div>
-              <input
-                type="number"
-                value={maxRetries}
-                onChange={(e) => setMaxRetries(Number(e.target.value) || 0)}
-                className="mt-0.5 w-full bg-transparent text-lg font-bold text-text-primary outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-              />
-              <div className="text-[9px] text-text-faint">per lead</div>
-            </div>
-            <div className="rounded-xl border border-border-default bg-surface-card p-3">
-              <div className="text-[11px] text-text-dim">Timezone</div>
-              <select
-                value={timezone}
-                onChange={(e) => setTimezone(e.target.value)}
-                className="mt-0.5 w-full appearance-none bg-transparent text-[13px] font-bold text-text-primary outline-none"
-              >
-                <option value="America/Toronto">EST</option>
-                <option value="America/Chicago">CST</option>
-                <option value="America/Denver">MST</option>
-                <option value="America/Los_Angeles">PST</option>
-              </select>
-              <div className="text-[9px] text-text-faint">
-                {timezone.split("/")[1]?.replace("_", " ")}
-              </div>
-            </div>
-            <div className="rounded-xl border border-border-default bg-surface-card p-3">
-              <div className="text-[11px] text-text-dim">End Date</div>
-              <div className="text-[13px] font-semibold text-text-primary">
-                {endDate || "Optional"}
-              </div>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="mt-1 w-full rounded-md border border-border-default bg-surface-input px-1.5 py-1 text-[11px] text-text-primary [color-scheme:dark]"
-              />
-            </div>
-          </div>
-
           <Button
             onClick={() => setStep(4)}
             className="w-full justify-center bg-emerald-dark text-white hover:bg-emerald-dark/90"
@@ -888,8 +836,71 @@ export function CampaignWizard({
         </div>
       )}
 
-      {/* Step 4: Review */}
+      {/* Step 4: Settings */}
       {step === 4 && (
+        <div>
+          <p className="mb-4 text-[13px] text-text-muted">Configure campaign limits and preferences.</p>
+
+          <div className="mb-2.5 grid grid-cols-2 gap-2.5">
+            <div className="rounded-xl border border-border-default bg-surface-card p-4">
+              <div className="text-[11px] text-text-dim">Daily Call Limit</div>
+              <input
+                type="number"
+                value={dailyLimit}
+                onChange={(e) => setDailyLimit(Number(e.target.value) || 0)}
+                className="mt-1 w-full bg-transparent text-xl font-bold text-text-primary outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              />
+              <div className="mt-0.5 text-[10px] text-text-faint">Maximum calls per day</div>
+            </div>
+            <div className="rounded-xl border border-border-default bg-surface-card p-4">
+              <div className="text-[11px] text-text-dim">Max Retries</div>
+              <input
+                type="number"
+                value={maxRetries}
+                onChange={(e) => setMaxRetries(Number(e.target.value) || 0)}
+                className="mt-1 w-full bg-transparent text-xl font-bold text-text-primary outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              />
+              <div className="mt-0.5 text-[10px] text-text-faint">Retry attempts per lead</div>
+            </div>
+          </div>
+
+          <div className="mb-2.5 grid grid-cols-2 gap-2.5">
+            <div className="rounded-xl border border-border-default bg-surface-card p-4">
+              <div className="mb-1 text-[11px] text-text-dim">Timezone</div>
+              <select
+                value={timezone}
+                onChange={(e) => setTimezone(e.target.value)}
+                className="w-full appearance-none bg-transparent text-sm font-bold text-text-primary outline-none"
+              >
+                <option value="America/Toronto">EST — Eastern</option>
+                <option value="America/Chicago">CST — Central</option>
+                <option value="America/Denver">MST — Mountain</option>
+                <option value="America/Los_Angeles">PST — Pacific</option>
+              </select>
+            </div>
+            <div className="rounded-xl border border-border-default bg-surface-card p-4">
+              <div className="mb-1 text-[11px] text-text-dim">End Date</div>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-full rounded-md border border-border-default bg-surface-input px-2 py-1.5 text-sm text-text-primary [color-scheme:dark]"
+              />
+              <div className="mt-0.5 text-[10px] text-text-faint">{endDate ? "" : "Optional — leave blank for ongoing"}</div>
+            </div>
+          </div>
+
+          <Button
+            onClick={() => setStep(5)}
+            className="w-full justify-center bg-emerald-dark text-white hover:bg-emerald-dark/90"
+          >
+            Continue
+          </Button>
+        </div>
+      )}
+
+      {/* Step 5: Review */}
+      {step === 5 && (
         <div>
           <p className="mb-4 text-[13px] text-text-muted">Review and launch.</p>
           <div className="mb-4 rounded-xl border border-border-default bg-surface-card p-5">
