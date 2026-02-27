@@ -158,12 +158,14 @@ export function CampaignWizard({
   hasCrm = false,
   contacts = [],
   existingCampaigns = [],
+  isVerified = false,
 }: {
   agents: AgentOption[];
   calendarOptions?: CalendarOption[];
   hasCrm?: boolean;
   contacts?: ContactForSelection[];
   existingCampaigns?: CampaignRef[];
+  isVerified?: boolean;
 }) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -933,14 +935,21 @@ export function CampaignWizard({
             >
               {submitting ? "Saving..." : "Save Draft"}
             </Button>
-            <Button
-              className="flex-1 justify-center bg-emerald-dark text-white hover:bg-emerald-dark/90"
-              disabled={submitting}
-              onClick={() => handleSubmit(true)}
-            >
-              {submitting ? "Activating..." : "Save & Activate"}
-            </Button>
+            <div className="flex-1" title={!isVerified ? "Complete verification to activate campaigns" : undefined}>
+              <Button
+                className="w-full justify-center bg-emerald-dark text-white hover:bg-emerald-dark/90"
+                disabled={submitting || !isVerified}
+                onClick={() => handleSubmit(true)}
+              >
+                {submitting ? "Activating..." : "Save & Activate"}
+              </Button>
+            </div>
           </div>
+          {!isVerified && (
+            <p className="mt-2 text-center text-[11px] text-amber-light">
+              <a href="/settings/verification" className="underline hover:text-amber-300">Complete verification</a> to activate campaigns.
+            </p>
+          )}
         </div>
       )}
 

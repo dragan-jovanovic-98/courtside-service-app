@@ -1,8 +1,14 @@
 import { getCampaigns } from "@/lib/queries/campaigns";
+import { getVerification } from "@/lib/queries/settings";
 import { CampaignsClient } from "./_components/campaigns-client";
 
 export default async function CampaignsPage() {
-  const campaigns = await getCampaigns();
+  const [campaigns, verification] = await Promise.all([
+    getCampaigns(),
+    getVerification(),
+  ]);
 
-  return <CampaignsClient campaigns={campaigns} />;
+  const isVerified = verification?.status === "approved";
+
+  return <CampaignsClient campaigns={campaigns} isVerified={isVerified} />;
 }

@@ -1,12 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { getCalendarConnections, getConnectedCrm } from "@/lib/queries/integrations";
 import { getOrgContacts } from "@/lib/queries/contacts";
+import { getVerification } from "@/lib/queries/settings";
 import { CampaignWizard } from "./_components/campaign-wizard";
 
 export default async function NewCampaignPage() {
   const supabase = await createClient();
 
-  const [agentsRes, calendarConnections, crmIntegration, contacts, campaignsRes] = await Promise.all([
+  const [agentsRes, calendarConnections, crmIntegration, contacts, campaignsRes, verification] = await Promise.all([
     supabase
       .from("agents")
       .select("id, name, agent_type, purpose_description")
@@ -19,6 +20,7 @@ export default async function NewCampaignPage() {
       .from("campaigns")
       .select("id, name")
       .order("name"),
+    getVerification(),
   ]);
 
   const agentList = (agentsRes.data ?? []).map((a) => ({
@@ -38,6 +40,8 @@ export default async function NewCampaignPage() {
     name: c.name,
   }));
 
+  const isVerified = verification?.status === "approved";
+
   return (
     <CampaignWizard
       agents={agentList}
@@ -45,6 +49,7 @@ export default async function NewCampaignPage() {
       hasCrm={!!crmIntegration}
       contacts={contacts}
       existingCampaigns={campaignList}
+      isVerified={isVerified}
     />
   );
 }

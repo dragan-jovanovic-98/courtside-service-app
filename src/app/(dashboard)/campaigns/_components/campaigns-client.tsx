@@ -16,8 +16,10 @@ const statusFilters = ["all", "active", "paused", "draft", "completed"] as const
 
 export function CampaignsClient({
   campaigns,
+  isVerified = false,
 }: {
   campaigns: CampaignWithAgent[];
+  isVerified?: boolean;
 }) {
   const router = useRouter();
   const [filter, setFilter] = useState<string>("all");
@@ -214,7 +216,8 @@ export function CampaignsClient({
                       <Button
                         size="sm"
                         className="bg-emerald-dark px-2 text-white hover:bg-emerald-dark/90"
-                        disabled={isBusy}
+                        disabled={isBusy || !isVerified}
+                        title={!isVerified ? "Complete verification to activate campaigns" : undefined}
                         onClick={() => handleStatusChange(c.id, "active")}
                       >
                         <Play size={12} />
