@@ -2,9 +2,6 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { createServiceClient } from "../_shared/supabase-client.ts";
 import { jsonResponse, errorResponse } from "../_shared/response.ts";
-import { getCalendarProvider } from "../_shared/calendar-providers.ts";
-import type { BusyPeriod } from "../_shared/calendar-providers.ts";
-import { getValidAccessToken } from "../_shared/oauth.ts";
 import {
   formatTimeForSpeech,
   formatDateTimeForSpeech,
@@ -134,7 +131,7 @@ serve(async (req) => {
     const { data: campaign, error: campaignError } = await supabase
       .from("campaigns")
       .select(
-        "id, org_id, calendar_connection_id, default_meeting_duration, " +
+        "id, name, org_id, calendar_connection_id, default_meeting_duration, " +
         "booking_enabled, timezone"
       )
       .eq("id", campaign_id)
@@ -252,74 +249,9 @@ serve(async (req) => {
       .eq("id", lead_id)
       .eq("org_id", org_id);
 
-    // ── Create calendar event (synchronous for agent bookings) ──
-    let calendarEventCreated = false;
-
-    if (campaign.calendar_connection_id) {
-      const { data: calConn } = await supabase
-        .from("calendar_connections")
-        .select("id, integration_id, provider, provider_calendar_id")
-        .eq("id", campaign.calendar_connection_id)
-        .single();
-
-      if (calConn) {
-        const providerType = calConn.provider as "google" | "outlook";
-        const token = await getValidAccessToken(calConn.integration_id, providerType);
-
-        if (token) {
-          try {
-            // Fetch contact name for the event summary
-            const { data: contact } = await supabase
-              .from("contacts")
-              .select("first_name, last_name, email")
-              .eq("id", contact_id)
-              .single();
-
-            const contactName = contact
-              ? `${contact.first_name ?? ""} ${contact.last_name ?? ""}`.trim()
-              : "Lead";
-
-            const provider = getCalendarProvider(providerType);
-            const endISO = addMinutesToISO(scheduled_at, durationMinutes);
-
-            const { eventId } = await provider.createEvent(
-              token,
-              calConn.provider_calendar_id,
-              {
-                summary: `Appointment with ${contactName}`,
-                description: notes || `Booked by AI agent during call`,
-                startDateTime: scheduled_at,
-                endDateTime: endISO,
-                timezone,
-                ...(contact?.email && {
-                  attendees: [{ email: contact.email, name: contactName }],
-                }),
-              }
-            );
-
-            // Update appointment with calendar event ID
-            await supabase
-              .from("appointments")
-              .update({
-                calendar_event_id: eventId,
-                calendar_provider: providerType,
-                sync_status: "success",
-                calendar_synced_at: new Date().toISOString(),
-              })
-              .eq("id", appointment.id);
-
-            calendarEventCreated = true;
-          } catch (err) {
-            console.error("Failed to create calendar event:", err);
-            // Appointment is still booked in DB — just no calendar event
-            await supabase
-              .from("appointments")
-              .update({ sync_status: "failed" })
-              .eq("id", appointment.id);
-          }
-        }
-      }
-    }
+    // Calendar sync is handled by the DB trigger (trg_appointment_change)
+    // which fires sync-appointment-to-calendar on INSERT/UPDATE/DELETE.
+    // No inline calendar sync needed here.
 
     // ── Fire N8N webhook ──
     const n8nUrl = Deno.env.get("N8N_WEBHOOK_BASE_URL");
@@ -358,7 +290,7 @@ serve(async (req) => {
 
     const timeFormatted = formatDateTimeForSpeech(fmtDate, fmtTime, timezone);
 
-    logToolCall({ tool_name: "agent-book-appointment", org_id, campaign_id, call_id: callId, lead_id, input: logInput, output: { booked: true, appointment_id: appointment.id, calendar_event_created: calendarEventCreated }, duration_ms: elapsed() });
+    logToolCall({ tool_name: "agent-book-appointment", org_id, campaign_id, call_id: callId, lead_id, input: logInput, output: { booked: true, appointment_id: appointment.id }, duration_ms: elapsed() });
     return jsonResponse({
       booked: true,
       appointment_id: appointment.id,
@@ -367,7 +299,6 @@ serve(async (req) => {
       endTime: formatTimeForSpeech(fmtEndTime),
       endTimeISO: addMinutesToISO(scheduled_at, durationMinutes),
       duration_minutes: durationMinutes,
-      calendar_event_created: calendarEventCreated,
       speakableResponse:
         `Perfect! I've booked your appointment for ${timeFormatted}. ` +
         "You'll receive a confirmation shortly. Is there anything else I can help with?",

@@ -2,8 +2,6 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { createServiceClient } from "../_shared/supabase-client.ts";
 import { jsonResponse, errorResponse } from "../_shared/response.ts";
-import { getCalendarProvider } from "../_shared/calendar-providers.ts";
-import { getValidAccessToken } from "../_shared/oauth.ts";
 import {
   formatTimeForSpeech,
   formatDateTimeForSpeech,
@@ -221,56 +219,8 @@ serve(async (req) => {
       return errorResponse("Failed to reschedule appointment", 500);
     }
 
-    // ── Update calendar event if exists ──
-    let calendarEventUpdated = false;
-    const calConnId = existing.calendar_connection_id ?? campaign?.calendar_connection_id;
-
-    if (existing.calendar_event_id && calConnId) {
-      const { data: calConn } = await supabase
-        .from("calendar_connections")
-        .select("id, integration_id, provider, provider_calendar_id")
-        .eq("id", calConnId)
-        .single();
-
-      if (calConn) {
-        const providerType = calConn.provider as "google" | "outlook";
-        const token = await getValidAccessToken(calConn.integration_id, providerType);
-
-        if (token) {
-          try {
-            const provider = getCalendarProvider(providerType);
-            const endISO = addMinutesToISO(new_scheduled_at, durationMinutes);
-
-            await provider.updateEvent(
-              token,
-              calConn.provider_calendar_id,
-              existing.calendar_event_id,
-              {
-                startDateTime: new_scheduled_at,
-                endDateTime: endISO,
-                timezone,
-              }
-            );
-
-            await supabase
-              .from("appointments")
-              .update({
-                sync_status: "success",
-                calendar_synced_at: new Date().toISOString(),
-              })
-              .eq("id", appointment_id);
-
-            calendarEventUpdated = true;
-          } catch (err) {
-            console.error("Failed to update calendar event:", err);
-            await supabase
-              .from("appointments")
-              .update({ sync_status: "failed" })
-              .eq("id", appointment_id);
-          }
-        }
-      }
-    }
+    // Calendar sync is handled by the DB trigger (trg_appointment_change)
+    // which fires sync-appointment-to-calendar on UPDATE.
 
     // ── Fire N8N webhook ──
     const n8nUrl = Deno.env.get("N8N_WEBHOOK_BASE_URL");
@@ -310,7 +260,7 @@ serve(async (req) => {
       hour12: false,
     });
 
-    logToolCall({ tool_name: "agent-reschedule-appointment", org_id, campaign_id, call_id: callId, lead_id: existing.lead_id, input: logInput, output: { rescheduled: true, appointment_id, calendar_event_updated: calendarEventUpdated }, duration_ms: elapsed() });
+    logToolCall({ tool_name: "agent-reschedule-appointment", org_id, campaign_id, call_id: callId, lead_id: existing.lead_id, input: logInput, output: { rescheduled: true, appointment_id }, duration_ms: elapsed() });
     return jsonResponse({
       rescheduled: true,
       appointment_id,
@@ -319,7 +269,6 @@ serve(async (req) => {
       new_time: newFormatted,
       newTimeISO: new_scheduled_at,
       duration_minutes: durationMinutes,
-      calendar_event_updated: calendarEventUpdated,
       speakableResponse:
         `Done! I've moved your appointment to ${newFormatted}. ` +
         "You'll receive an updated confirmation.",

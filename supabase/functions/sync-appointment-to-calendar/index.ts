@@ -251,15 +251,41 @@ function buildEventDescription(
   contactFirstName?: string,
   contactLastName?: string,
   contactPhone?: string,
-  notes?: string
+  notes?: string,
+  contactEmail?: string,
+  contactCompany?: string,
+  campaignName?: string | null,
+  leadNotes?: string | null
 ): string {
-  const parts: string[] = [];
+  const lines: string[] = [];
+
+  if (campaignName) {
+    lines.push(`Booked via Courtside AI • Campaign: ${campaignName}`);
+  } else {
+    lines.push("Booked via Courtside AI");
+  }
+
+  lines.push("");
+  lines.push("── Contact ──");
   const name = [contactFirstName, contactLastName].filter(Boolean).join(" ");
-  if (name) parts.push(`Contact: ${name}`);
-  if (contactPhone) parts.push(`Phone: ${contactPhone}`);
-  if (notes) parts.push(`\nNotes:\n${notes}`);
-  parts.push("\nBooked via Courtside AI");
-  return parts.join("\n");
+  if (name) lines.push(`Name: ${name}`);
+  if (contactPhone) lines.push(`Phone: ${contactPhone}`);
+  if (contactEmail) lines.push(`Email: ${contactEmail}`);
+  if (contactCompany) lines.push(`Company: ${contactCompany}`);
+
+  if (notes) {
+    lines.push("");
+    lines.push("── Notes ──");
+    lines.push(notes);
+  }
+
+  if (leadNotes) {
+    lines.push("");
+    lines.push("── Lead Notes ──");
+    lines.push(leadNotes);
+  }
+
+  return lines.join("\n");
 }
 
 // ── Main handler ───────────────────────────────────────────────────
@@ -293,7 +319,7 @@ serve(async (req) => {
     const { data: appointment, error: apptError } = await supabase
       .from("appointments")
       .select(
-        "id, org_id, scheduled_at, duration_minutes, notes, contact_id, calendar_event_id, calendar_connection_id, sync_status, status, title"
+        "id, org_id, scheduled_at, duration_minutes, notes, contact_id, lead_id, campaign_id, calendar_event_id, calendar_connection_id, sync_status, status, title"
       )
       .eq("id", appointment_id)
       .single();
@@ -341,14 +367,36 @@ serve(async (req) => {
     const calendarId = calConn.provider_calendar_id;
 
     // ── Fetch contact ──
-    let contact: { first_name?: string; last_name?: string; phone?: string } | null = null;
+    let contact: { first_name?: string; last_name?: string; phone?: string; email?: string; company?: string } | null = null;
     if (appointment.contact_id) {
       const { data } = await supabase
         .from("contacts")
-        .select("first_name, last_name, phone")
+        .select("first_name, last_name, phone, email, company")
         .eq("id", appointment.contact_id)
         .single();
       contact = data;
+    }
+
+    // ── Fetch campaign name ──
+    let campaignName: string | null = null;
+    if (appointment.campaign_id) {
+      const { data: camp } = await supabase
+        .from("campaigns")
+        .select("name")
+        .eq("id", appointment.campaign_id)
+        .single();
+      campaignName = camp?.name ?? null;
+    }
+
+    // ── Fetch lead notes ──
+    let leadNotes: string | null = null;
+    if (appointment.lead_id) {
+      const { data: lead } = await supabase
+        .from("leads")
+        .select("notes")
+        .eq("id", appointment.lead_id)
+        .single();
+      leadNotes = lead?.notes ?? null;
     }
 
     const summary = buildEventSummary(appointment.title, contact?.first_name, contact?.last_name);
@@ -356,7 +404,11 @@ serve(async (req) => {
       contact?.first_name,
       contact?.last_name,
       contact?.phone,
-      appointment.notes
+      appointment.notes,
+      contact?.email,
+      contact?.company,
+      campaignName,
+      leadNotes
     );
     const startDateTime = appointment.scheduled_at;
     const endDateTime = computeEndDateTime(
