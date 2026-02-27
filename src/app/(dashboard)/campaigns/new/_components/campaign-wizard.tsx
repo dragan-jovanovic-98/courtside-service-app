@@ -308,7 +308,7 @@ export function CampaignWizard({
             placeholder="Campaign name..."
             className="mb-3 border-border-default bg-surface-input text-text-primary placeholder:text-text-dim"
           />
-          <div className={cn("mb-3 grid gap-2.5", hasCrm ? "grid-cols-3" : "grid-cols-2")}>
+          <div className="mb-3 grid grid-cols-3 gap-2.5">
             {/* CSV Upload */}
             <div
               onClick={() => fileInputRef.current?.click()}
@@ -340,42 +340,44 @@ export function CampaignWizard({
               />
             </div>
             {/* Import from CRM */}
-            {hasCrm && (
-              <button
-                onClick={async () => {
-                  setCrmImporting(true);
-                  try {
-                    const { data, error: err } = await callEdgeFunction<{ imported: number }>(
-                      "crm-import-contacts",
-                      { preview_only: false }
-                    );
-                    if (err) {
-                      setError(`CRM import failed: ${err}`);
-                    } else {
-                      setCrmImportCount(data?.imported ?? 0);
-                    }
-                  } catch {
-                    setError("CRM import failed");
+            <button
+              onClick={async () => {
+                if (!hasCrm) return;
+                setCrmImporting(true);
+                try {
+                  const { data, error: err } = await callEdgeFunction<{ imported: number }>(
+                    "crm-import-contacts",
+                    { preview_only: false }
+                  );
+                  if (err) {
+                    setError(`CRM import failed: ${err}`);
+                  } else {
+                    setCrmImportCount(data?.imported ?? 0);
                   }
-                  setCrmImporting(false);
-                }}
-                disabled={crmImporting}
-                className={cn(
-                  "rounded-xl border-2 border-dashed p-8 text-center transition-colors hover:border-text-dim",
-                  crmImportCount > 0
+                } catch {
+                  setError("CRM import failed");
+                }
+                setCrmImporting(false);
+              }}
+              disabled={!hasCrm || crmImporting}
+              title={hasCrm ? "Import contacts from CRM" : "Connect a CRM in Settings → Integrations"}
+              className={cn(
+                "rounded-xl border-2 border-dashed p-8 text-center transition-colors",
+                !hasCrm
+                  ? "cursor-not-allowed border-border-default opacity-50"
+                  : crmImportCount > 0
                     ? "border-[rgba(96,165,250,0.4)] bg-blue-bg"
-                    : "border-border-default"
-                )}
-              >
-                <Users size={16} className="mx-auto mb-1.5 text-text-dim" />
-                <div className="text-[13px] font-semibold text-text-muted">
-                  {crmImporting ? "Importing..." : crmImportCount > 0 ? "CRM Imported" : "Import from CRM"}
-                </div>
-                <div className="mt-1 text-[11px] text-text-dim">
-                  {crmImportCount > 0 ? `${crmImportCount} contacts` : "HubSpot contacts"}
-                </div>
-              </button>
-            )}
+                    : "border-border-default hover:border-text-dim"
+              )}
+            >
+              <Users size={16} className="mx-auto mb-1.5 text-text-dim" />
+              <div className="text-[13px] font-semibold text-text-muted">
+                {crmImporting ? "Importing..." : crmImportCount > 0 ? "CRM Imported" : "Import from CRM"}
+              </div>
+              <div className="mt-1 text-[11px] text-text-dim">
+                {!hasCrm ? "Not connected" : crmImportCount > 0 ? `${crmImportCount} contacts` : "HubSpot contacts"}
+              </div>
+            </button>
             {/* Existing Leads placeholder */}
             <div className="cursor-not-allowed rounded-xl border-2 border-dashed border-border-default p-8 text-center opacity-50">
               <div className="text-[13px] font-semibold text-text-muted">Existing Leads</div>

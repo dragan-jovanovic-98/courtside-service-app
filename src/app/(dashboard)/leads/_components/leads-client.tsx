@@ -928,11 +928,16 @@ export function LeadsClient({
           <Button variant="ghost" className="gap-1.5" onClick={() => setShowImport(true)}>
             <Upload size={14} /> Import CSV
           </Button>
-          {hasCrm && (
-            <Button variant="ghost" className="gap-1.5" onClick={() => setShowCrmImport(true)}>
-              <Database size={14} /> Import CRM
-            </Button>
-          )}
+          <Button
+            variant="ghost"
+            className="gap-1.5"
+            disabled={!hasCrm}
+            onClick={() => setShowCrmImport(true)}
+            title={hasCrm ? "Import contacts from CRM" : "Connect a CRM in Settings → Integrations"}
+          >
+            <Database size={14} /> Import CRM
+            {!hasCrm && <span className="text-[10px] opacity-50">Not Connected</span>}
+          </Button>
           <Button
             className="gap-1.5 bg-emerald-dark text-white hover:bg-emerald-dark/90"
             onClick={() => setShowAdd(true)}
