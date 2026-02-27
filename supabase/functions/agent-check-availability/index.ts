@@ -619,21 +619,23 @@ serve(async (req) => {
       return jsonResponse(resp);
     }
 
-    // ── Earliest available / range / alternatives ──
+    // ── Earliest available / range / day_only — present options, require selection ──
     if (isEarliestQuery || parsed.confidence === "range" || parsed.confidence === "day_only") {
+      const hasAlts = alternatives.length > 0;
       const speakable = generateSpeakableResponse({
-        available: alternatives.length > 0,
+        available: false,  // never "available" for general queries — agent must ask
         requestedTime: requestedTimeFormatted,
         alternatives: speakableAlts,
         timezone,
         reason,
         isEarliestQuery,
+        needsSelection: hasAlts,  // signal to present options conversationally
       });
 
-      const hasAlts = alternatives.length > 0;
-      logToolCall({ tool_name: "agent-check-availability", org_id, campaign_id, call_id: callId, lead_id, input: logInput, output: { available: hasAlts, alternatives_count: alternatives.length, parse_confidence: parsed.confidence }, duration_ms: elapsed(), calendar_provider: calendarProvider });
+      logToolCall({ tool_name: "agent-check-availability", org_id, campaign_id, call_id: callId, lead_id, input: logInput, output: { available: false, needs_selection: hasAlts, alternatives_count: alternatives.length, parse_confidence: parsed.confidence }, duration_ms: elapsed(), calendar_provider: calendarProvider });
       return jsonResponse({
-        available: hasAlts,
+        available: false,
+        needs_selection: hasAlts,  // tells Retell agent: present options, ask which one
         requestedTime: requestedTimeFormatted,
         requestedTimeISO: null,
         duration_minutes: durationMinutes,

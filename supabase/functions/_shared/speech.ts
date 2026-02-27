@@ -98,22 +98,47 @@ export interface SpeakableParams {
   timezone: string;
   reason?: string;
   isEarliestQuery: boolean;
+  needsSelection?: boolean;  // true for range/day queries — present options and ask
 }
 
 /**
  * Generates a natural sentence for the AI agent to read aloud.
  */
 export function generateSpeakableResponse(params: SpeakableParams): string {
-  const { available, requestedTime, alternatives, timezone, reason, isEarliestQuery } = params;
+  const { available, requestedTime, alternatives, timezone, reason, isEarliestQuery, needsSelection } = params;
 
-  // Format alternatives for speech
+  // Format alternatives for speech — use time-only when all on the same day
   const fmtAlts = alternatives.map((a) =>
     formatDateTimeForSpeech(a.date, a.time, timezone)
   );
 
-  // ── Available at requested time ──
+  // Time-only versions for same-day options (more natural: "I have 12, 1, or 2" instead of full dates)
+  const allSameDay = alternatives.length > 0 && alternatives.every((a) => a.date === alternatives[0].date);
+  const fmtTimesOnly = alternatives.map((a) => formatTimeForSpeech(a.time));
+
+  // ── Available at requested time (exact match only) ──
   if (available && requestedTime) {
     return `Great news! ${requestedTime} is available. Shall I book that for you?`;
+  }
+
+  // ── Range/general query — present options and ask for selection ──
+  if (needsSelection && fmtAlts.length > 0) {
+    if (allSameDay) {
+      const dayLabel = formatDateForSpeech(alternatives[0].date, timezone);
+      if (fmtTimesOnly.length === 1) {
+        return `On ${dayLabel}, I have ${fmtTimesOnly[0]} available. Would that work for you?`;
+      }
+      const last = fmtTimesOnly[fmtTimesOnly.length - 1];
+      const rest = fmtTimesOnly.slice(0, -1).join(", ");
+      return `On ${dayLabel}, I have ${rest}, or ${last} available. Which works best for you?`;
+    }
+    // Multiple days
+    if (fmtAlts.length === 1) {
+      return `I have ${fmtAlts[0]} available. Would that work for you?`;
+    }
+    const last = fmtAlts[fmtAlts.length - 1];
+    const rest = fmtAlts.slice(0, -1).join(", ");
+    return `I have ${rest}, or ${last} available. Which works best for you?`;
   }
 
   // ── Earliest available query ──
@@ -121,14 +146,20 @@ export function generateSpeakableResponse(params: SpeakableParams): string {
     if (fmtAlts.length === 1) {
       return `The earliest I have available is ${fmtAlts[0]}. Would that work for you?`;
     }
-    const rest = fmtAlts.slice(1).join(" or ");
-    return `The earliest I have available is ${fmtAlts[0]}. I also have ${rest}. Which works best for you?`;
+    const last = fmtAlts[fmtAlts.length - 1];
+    const rest = fmtAlts.slice(0, -1).join(", ");
+    return `The earliest I have available is ${fmtAlts[0]}. I also have ${rest}, or ${last}. Which works best for you?`;
   }
 
   // ── Day not available ──
   if (reason === "day_not_available" && fmtAlts.length > 0) {
     const dayRef = requestedTime ?? "that day";
-    return `I'm sorry, we don't have availability on ${dayRef}. The earliest I can offer is ${fmtAlts[0]}. Would that work?`;
+    if (fmtAlts.length === 1) {
+      return `I'm sorry, we don't have availability on ${dayRef}. The closest I can offer is ${fmtAlts[0]}. Would that work?`;
+    }
+    const last = fmtAlts[fmtAlts.length - 1];
+    const rest = fmtAlts.slice(0, -1).join(", ");
+    return `I'm sorry, we don't have availability on ${dayRef}. The closest I can offer is ${rest}, or ${last}. Would any of those work?`;
   }
 
   // ── Specific time unavailable, alternatives offered ──
@@ -136,8 +167,9 @@ export function generateSpeakableResponse(params: SpeakableParams): string {
     if (fmtAlts.length === 1) {
       return `Unfortunately, ${requestedTime} is not available. I do have an opening at ${fmtAlts[0]}. Would that work instead?`;
     }
-    const altList = fmtAlts.join(", ");
-    return `Unfortunately, ${requestedTime} is not available. I do have openings at ${altList}. Would any of those work for you?`;
+    const last = fmtAlts[fmtAlts.length - 1];
+    const rest = fmtAlts.slice(0, -1).join(", ");
+    return `Unfortunately, ${requestedTime} is not available. I do have openings at ${rest}, or ${last}. Would any of those work for you?`;
   }
 
   // ── No alternatives at all ──
@@ -147,8 +179,12 @@ export function generateSpeakableResponse(params: SpeakableParams): string {
 
   // ── Fallback ──
   if (fmtAlts.length > 0) {
-    const altList = fmtAlts.join(", ");
-    return `I have the following times available: ${altList}. Would any of those work for you?`;
+    if (fmtAlts.length === 1) {
+      return `I have ${fmtAlts[0]} available. Would that work for you?`;
+    }
+    const last = fmtAlts[fmtAlts.length - 1];
+    const rest = fmtAlts.slice(0, -1).join(", ");
+    return `I have ${rest}, or ${last} available. Which works best for you?`;
   }
 
   return "I apologize, but I'm unable to check the calendar right now. Let me take down your preferred time and someone will confirm shortly.";

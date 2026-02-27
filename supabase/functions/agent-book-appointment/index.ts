@@ -229,7 +229,7 @@ serve(async (req) => {
         lead_id,
         contact_id,
         campaign_id,
-        ...(call_metadata?.call_id && { call_id: call_metadata.call_id }),
+        ...(call_metadata?.call_id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(call_metadata.call_id) && { call_id: call_metadata.call_id }),
         scheduled_at,
         duration_minutes: durationMinutes,
         notes,
