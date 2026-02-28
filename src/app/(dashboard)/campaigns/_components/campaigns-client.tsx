@@ -3,7 +3,7 @@
 import { useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Pause, Play, Megaphone, Trash2, Archive } from "lucide-react";
+import { Plus, Pause, Play, Megaphone, Trash2, Archive, X, Upload, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ColoredBadge } from "@/components/ui/colored-badge";
 import { ProgressBar } from "@/components/ui/progress-bar";
@@ -43,8 +43,8 @@ export function CampaignsClient({
   const router = useRouter();
   const [filter, setFilter] = useState<string>("all");
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
-  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [editCampaignId, setEditCampaignId] = useState<string | null>(null);
+  const [addLeadsCampaignId, setAddLeadsCampaignId] = useState<string | null>(null);
 
   const editCampaign = campaigns.find((c) => c.id === editCampaignId) ?? null;
 
@@ -93,23 +93,8 @@ export function CampaignsClient({
     router.refresh();
   };
 
-  const handleImportLeads = async (campaignId: string, file: File) => {
-    setBusyIds((prev) => new Set(prev).add(campaignId));
-    const text = await file.text();
-    const { error } = await callEdgeFunction("import-leads", {
-      campaign_id: campaignId,
-      csv: text,
-    });
-    if (error) {
-      alert(`Failed to import leads: ${error}`);
-    } else {
-      alert("Leads imported successfully");
-    }
-    setBusyIds((prev) => {
-      const next = new Set(prev);
-      next.delete(campaignId);
-      return next;
-    });
+  const handleAddLeadsSuccess = () => {
+    setAddLeadsCampaignId(null);
     router.refresh();
   };
 
@@ -239,21 +224,10 @@ export function CampaignsClient({
                         size="sm"
                         className="gap-1 px-2 text-[10px]"
                         disabled={isBusy}
-                        onClick={() => fileInputRefs.current[c.id]?.click()}
+                        onClick={() => setAddLeadsCampaignId(c.id)}
                       >
                         <Plus size={12} /> Leads
                       </Button>
-                      <input
-                        ref={(el) => { fileInputRefs.current[c.id] = el; }}
-                        type="file"
-                        accept=".csv"
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleImportLeads(c.id, file);
-                          e.target.value = "";
-                        }}
-                      />
                       {c.status === "active" && (
                         <Button
                           variant="ghost"
@@ -444,6 +418,241 @@ export function CampaignsClient({
           }}
         />
       )}
+
+      {/* Add Leads Modal */}
+      {addLeadsCampaignId && (
+        <AddLeadsModal
+          campaignId={addLeadsCampaignId}
+          campaignName={campaigns.find((c) => c.id === addLeadsCampaignId)?.name ?? "Campaign"}
+          onClose={() => setAddLeadsCampaignId(null)}
+          onSuccess={handleAddLeadsSuccess}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ─── Add Leads Modal ───────────────────────────────────────────── */
+
+function AddLeadsModal({
+  campaignId,
+  campaignName,
+  onClose,
+  onSuccess,
+}: {
+  campaignId: string;
+  campaignName: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [tab, setTab] = useState<"csv" | "manual">("csv");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // CSV state
+  const [file, setFile] = useState<File | null>(null);
+  const [rowCount, setRowCount] = useState(0);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // Manual state
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [company, setCompany] = useState("");
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] ?? null;
+    setFile(f);
+    setError(null);
+    if (f) {
+      f.text().then((text) => {
+        const lines = text.trim().split("\n");
+        setRowCount(Math.max(0, lines.length - 1));
+      });
+    } else {
+      setRowCount(0);
+    }
+  };
+
+  const handleCsvImport = async () => {
+    if (!file) { setError("Select a CSV file"); return; }
+    setLoading(true);
+    setError(null);
+    const csvText = await file.text();
+    const { data, error: err } = await callEdgeFunction<{
+      imported: number;
+      duplicates: number;
+      dnc_excluded: number;
+    }>("import-leads", { campaign_id: campaignId, csv: csvText });
+    setLoading(false);
+    if (err) {
+      setError(err);
+    } else {
+      const msg = data
+        ? `Imported ${data.imported} leads (${data.duplicates} duplicates, ${data.dnc_excluded} DNC excluded)`
+        : "Import complete";
+      alert(msg);
+      onSuccess();
+    }
+  };
+
+  const handleManualAdd = async () => {
+    if (!phone.trim()) { setError("Phone number is required"); return; }
+    setLoading(true);
+    setError(null);
+    const csv = `first_name,last_name,phone,email,company\n${firstName},${lastName},${phone},${email},${company}`;
+    const { error: err } = await callEdgeFunction("import-leads", {
+      campaign_id: campaignId,
+      csv,
+    });
+    setLoading(false);
+    if (err) {
+      setError(err);
+    } else {
+      alert("Lead added successfully");
+      onSuccess();
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-xl border border-border-default bg-[#141820] p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-text-primary">Add Leads</h2>
+            <p className="text-[11px] text-text-dim">to {campaignName}</p>
+          </div>
+          <button onClick={onClose} className="text-text-dim hover:text-text-muted">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="mb-4 flex gap-1 rounded-lg bg-[rgba(255,255,255,0.04)] p-1">
+          <button
+            onClick={() => { setTab("csv"); setError(null); }}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1.5 rounded-md py-2 text-xs font-semibold transition-colors",
+              tab === "csv"
+                ? "bg-[rgba(255,255,255,0.08)] text-text-primary"
+                : "text-text-dim hover:text-text-muted"
+            )}
+          >
+            <Upload size={13} /> Import CSV
+          </button>
+          <button
+            onClick={() => { setTab("manual"); setError(null); }}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1.5 rounded-md py-2 text-xs font-semibold transition-colors",
+              tab === "manual"
+                ? "bg-[rgba(255,255,255,0.08)] text-text-primary"
+                : "text-text-dim hover:text-text-muted"
+            )}
+          >
+            <UserPlus size={13} /> Add Manually
+          </button>
+        </div>
+
+        {error && (
+          <div className="mb-3 rounded-lg border border-[rgba(248,113,113,0.3)] bg-[rgba(248,113,113,0.08)] px-3 py-2 text-xs text-red-light">
+            {error}
+          </div>
+        )}
+
+        {tab === "csv" && (
+          <div className="space-y-4">
+            <div
+              onClick={() => fileRef.current?.click()}
+              className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed border-border-default bg-surface-card p-6 text-center transition-colors hover:border-emerald-dark"
+            >
+              <Upload size={28} className="text-text-dim" />
+              {file ? (
+                <>
+                  <span className="text-sm font-medium text-text-primary">{file.name}</span>
+                  <span className="text-xs text-text-dim">{rowCount} rows</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-sm text-text-muted">Click to select a CSV file</span>
+                  <span className="text-xs text-text-dim">
+                    Columns: first_name, last_name, phone, email, company, source
+                  </span>
+                </>
+              )}
+            </div>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            <Button
+              onClick={handleCsvImport}
+              disabled={loading || !file}
+              className="w-full justify-center bg-emerald-dark text-white hover:bg-emerald-dark/90"
+            >
+              {loading ? "Importing..." : "Import Leads"}
+            </Button>
+          </div>
+        )}
+
+        {tab === "manual" && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <label className="mb-1 block text-[10px] text-text-dim">First Name</label>
+                <input
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  className="w-full rounded-lg border border-border-default bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-[13px] text-text-primary outline-none"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] text-text-dim">Last Name</label>
+                <input
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  className="w-full rounded-lg border border-border-default bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-[13px] text-text-primary outline-none"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-[10px] text-text-dim">Phone *</label>
+              <input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+1 (555) 123-4567"
+                className="w-full rounded-lg border border-border-default bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-[13px] text-text-primary outline-none placeholder:text-text-faint"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[10px] text-text-dim">Email</label>
+              <input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full rounded-lg border border-border-default bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-[13px] text-text-primary outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[10px] text-text-dim">Company</label>
+              <input
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
+                className="w-full rounded-lg border border-border-default bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-[13px] text-text-primary outline-none"
+              />
+            </div>
+            <Button
+              onClick={handleManualAdd}
+              disabled={loading || !phone.trim()}
+              className="w-full justify-center bg-emerald-dark text-white hover:bg-emerald-dark/90"
+            >
+              {loading ? "Adding..." : "Add Lead"}
+            </Button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
