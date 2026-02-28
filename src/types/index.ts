@@ -101,7 +101,7 @@ export type UserWithOrg = User & {
 export type DashboardStats = {
   appointments: number;
   estRevenue: number;
-  hoursSaved: number;
+  totalCallSeconds: number;
   activePipeline: number;
 };
 

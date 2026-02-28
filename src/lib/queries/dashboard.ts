@@ -58,14 +58,13 @@ export async function getDashboardStats(
       sum + (r.duration_seconds ?? 0),
     0
   );
-  const hoursSaved = Math.round(totalSeconds / 3600);
   const appointments = apptRes.count ?? 0;
   const estRevenue = appointments * 3036;
 
   return {
     appointments,
     estRevenue,
-    hoursSaved,
+    totalCallSeconds: totalSeconds,
     activePipeline: pipelineRes.count ?? 0,
   };
 }

@@ -464,8 +464,8 @@ export function DashboardClient({
           accent={tokens.blue}
         />
         <StatCard
-          label="Hours Saved"
-          value={stats.hoursSaved}
+          label="Time Saved"
+          value={`${Math.floor(stats.totalCallSeconds / 3600)}h ${Math.floor((stats.totalCallSeconds % 3600) / 60)}m`}
           subtitle="of outreach calling"
           icon={<Timer size={14} />}
           accent={tokens.amber}
