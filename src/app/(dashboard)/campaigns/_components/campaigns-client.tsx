@@ -3,7 +3,7 @@
 import { useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Pause, Play, Megaphone, Trash2, Archive, X, Upload, UserPlus } from "lucide-react";
+import { Plus, Pause, Play, Megaphone, Trash2, Archive, X, Upload, UserPlus, Users, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ColoredBadge } from "@/components/ui/colored-badge";
 import { ProgressBar } from "@/components/ui/progress-bar";
@@ -21,8 +21,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { callEdgeFunction } from "@/lib/supabase/edge-functions";
+import { addLeadsFromContacts } from "@/lib/actions/leads";
 import { CampaignEditModal } from "./campaign-edit-modal";
-import type { CampaignWithAgent } from "@/types";
+import type { CampaignWithAgent, ContactForSelection } from "@/types";
 
 type AgentOption = { id: string; name: string };
 type CalendarOption = { id: string; label: string };
@@ -34,11 +35,13 @@ export function CampaignsClient({
   isVerified = false,
   agents = [],
   calendarOptions = [],
+  contacts = [],
 }: {
   campaigns: CampaignWithAgent[];
   isVerified?: boolean;
   agents?: AgentOption[];
   calendarOptions?: CalendarOption[];
+  contacts?: ContactForSelection[];
 }) {
   const router = useRouter();
   const [filter, setFilter] = useState<string>("all");
@@ -424,6 +427,7 @@ export function CampaignsClient({
         <AddLeadsModal
           campaignId={addLeadsCampaignId}
           campaignName={campaigns.find((c) => c.id === addLeadsCampaignId)?.name ?? "Campaign"}
+          contacts={contacts}
           onClose={() => setAddLeadsCampaignId(null)}
           onSuccess={handleAddLeadsSuccess}
         />
@@ -437,15 +441,17 @@ export function CampaignsClient({
 function AddLeadsModal({
   campaignId,
   campaignName,
+  contacts,
   onClose,
   onSuccess,
 }: {
   campaignId: string;
   campaignName: string;
+  contacts: ContactForSelection[];
   onClose: () => void;
   onSuccess: () => void;
 }) {
-  const [tab, setTab] = useState<"csv" | "manual">("csv");
+  const [tab, setTab] = useState<"csv" | "manual" | "existing">("csv");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -460,6 +466,50 @@ function AddLeadsModal({
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [company, setCompany] = useState("");
+
+  // Existing contacts state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Filter out contacts already in this campaign and DNC
+  const availableContacts = contacts.filter(
+    (c) => !c.is_dnc && !c.leads.some((l) => l.campaign_id === campaignId)
+  );
+  const filteredContacts = searchQuery
+    ? availableContacts.filter((c) => {
+        const q = searchQuery.toLowerCase();
+        return (
+          c.first_name.toLowerCase().includes(q) ||
+          (c.last_name?.toLowerCase().includes(q) ?? false) ||
+          c.phone.includes(q) ||
+          (c.email?.toLowerCase().includes(q) ?? false) ||
+          (c.company?.toLowerCase().includes(q) ?? false)
+        );
+      })
+    : availableContacts;
+
+  const toggleContact = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleAddExisting = async () => {
+    if (selectedIds.size === 0) { setError("Select at least one contact"); return; }
+    setLoading(true);
+    setError(null);
+    const result = await addLeadsFromContacts(Array.from(selectedIds), campaignId);
+    setLoading(false);
+    if (result.error) {
+      setError(result.error);
+    } else {
+      alert(`Added ${result.imported} leads (${result.duplicates} duplicates)`);
+      onSuccess();
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null;
@@ -551,6 +601,17 @@ function AddLeadsModal({
             )}
           >
             <UserPlus size={13} /> Add Manually
+          </button>
+          <button
+            onClick={() => { setTab("existing"); setError(null); }}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1.5 rounded-md py-2 text-xs font-semibold transition-colors",
+              tab === "existing"
+                ? "bg-[rgba(255,255,255,0.08)] text-text-primary"
+                : "text-text-dim hover:text-text-muted"
+            )}
+          >
+            <Users size={13} /> Existing
           </button>
         </div>
 
@@ -649,6 +710,72 @@ function AddLeadsModal({
               className="w-full justify-center bg-emerald-dark text-white hover:bg-emerald-dark/90"
             >
               {loading ? "Adding..." : "Add Lead"}
+            </Button>
+          </div>
+        )}
+
+        {tab === "existing" && (
+          <div className="space-y-3">
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" />
+              <input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search contacts..."
+                className="w-full rounded-lg border border-border-default bg-[rgba(255,255,255,0.04)] py-[9px] pl-9 pr-3 text-[13px] text-text-primary outline-none placeholder:text-text-faint"
+              />
+            </div>
+            {availableContacts.length === 0 ? (
+              <p className="py-6 text-center text-sm text-text-dim">
+                No available contacts. All contacts are already in this campaign or on the DNC list.
+              </p>
+            ) : (
+              <div className="max-h-[280px] overflow-y-auto rounded-lg border border-border-default">
+                {filteredContacts.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => toggleContact(c.id)}
+                    className={cn(
+                      "flex w-full items-center gap-3 border-b border-border-default px-3 py-2.5 text-left transition-colors last:border-b-0",
+                      selectedIds.has(c.id)
+                        ? "bg-emerald-bg"
+                        : "hover:bg-[rgba(255,255,255,0.03)]"
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "flex size-4 shrink-0 items-center justify-center rounded border",
+                        selectedIds.has(c.id)
+                          ? "border-emerald-dark bg-emerald-dark text-white"
+                          : "border-border-default"
+                      )}
+                    >
+                      {selectedIds.has(c.id) && <span className="text-[10px]">✓</span>}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-semibold text-text-primary">
+                        {c.first_name} {c.last_name ?? ""}
+                      </div>
+                      <div className="truncate text-[10px] text-text-dim">
+                        {c.phone}{c.email ? ` · ${c.email}` : ""}{c.company ? ` · ${c.company}` : ""}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+                {filteredContacts.length === 0 && searchQuery && (
+                  <p className="py-4 text-center text-xs text-text-dim">No contacts match your search.</p>
+                )}
+              </div>
+            )}
+            {selectedIds.size > 0 && (
+              <p className="text-xs text-text-muted">{selectedIds.size} contact{selectedIds.size !== 1 ? "s" : ""} selected</p>
+            )}
+            <Button
+              onClick={handleAddExisting}
+              disabled={loading || selectedIds.size === 0}
+              className="w-full justify-center bg-emerald-dark text-white hover:bg-emerald-dark/90"
+            >
+              {loading ? "Adding..." : `Add ${selectedIds.size || ""} Lead${selectedIds.size !== 1 ? "s" : ""}`}
             </Button>
           </div>
         )}

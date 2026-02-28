@@ -2,12 +2,13 @@ import { createClient } from "@/lib/supabase/server";
 import { getCampaigns } from "@/lib/queries/campaigns";
 import { getCalendarConnections } from "@/lib/queries/integrations";
 import { getVerification } from "@/lib/queries/settings";
+import { getOrgContacts } from "@/lib/queries/contacts";
 import { CampaignsClient } from "./_components/campaigns-client";
 
 export default async function CampaignsPage() {
   const supabase = await createClient();
 
-  const [campaigns, verification, agentsRes, calendarConnections] = await Promise.all([
+  const [campaigns, verification, agentsRes, calendarConnections, contacts] = await Promise.all([
     getCampaigns({ includeArchived: true }),
     getVerification(),
     supabase
@@ -16,6 +17,7 @@ export default async function CampaignsPage() {
       .in("status", ["active", "pending"])
       .order("name"),
     getCalendarConnections(),
+    getOrgContacts(),
   ]);
 
   const isVerified = verification?.status === "approved";
@@ -40,6 +42,7 @@ export default async function CampaignsPage() {
       isVerified={isVerified}
       agents={agentList}
       calendarOptions={calendarOptions}
+      contacts={contacts}
     />
   );
 }
