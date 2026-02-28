@@ -152,8 +152,7 @@ export type CallOutcomeCount = {
 
 export type FunnelData = {
   leads: number;
-  attempts: number;
-  connected: number;
+  contacted: number;
   interested: number;
   booked: number;
   showed: number;

@@ -153,8 +153,7 @@ export function DashboardClient({
   // Funnel values
   const funnelEntries: [string, number, number][] = [
     ["Leads", funnel.leads, 100],
-    ["Attempts", funnel.attempts, funnel.leads > 0 ? Math.round((funnel.attempts / funnel.leads) * 100) : 0],
-    ["Connected", funnel.connected, funnel.leads > 0 ? Math.round((funnel.connected / funnel.leads) * 100) : 0],
+    ["Contacted", funnel.contacted, funnel.leads > 0 ? Math.round((funnel.contacted / funnel.leads) * 100) : 0],
     ["Interested", funnel.interested, funnel.leads > 0 ? Math.round((funnel.interested / funnel.leads) * 100) : 0],
     ["Booked", funnel.booked, funnel.leads > 0 ? Math.round((funnel.booked / funnel.leads) * 100) : 0],
     ["Showed", funnel.showed, funnel.leads > 0 ? Math.round((funnel.showed / funnel.leads) * 100) : 0],
@@ -547,9 +546,8 @@ export function DashboardClient({
               `${tokens.amber}30`,
               tokens.emerald,
               tokens.emerald,
-              tokens.emerald,
             ];
-            const isHighlight = i >= 4;
+            const isHighlight = i >= 3;
             return (
               <div
                 key={label}

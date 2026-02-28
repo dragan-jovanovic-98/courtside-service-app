@@ -171,58 +171,26 @@ export async function getConversionFunnel(
   const supabase = await createClient();
   const since = rangeToDate(range);
 
-  let leadsQ = supabase
-    .from("leads")
-    .select("id", { count: "exact", head: true });
-  let attemptsQ = supabase
-    .from("leads")
-    .select("id", { count: "exact", head: true })
-    .gt("retry_count", 0);
-  let connectedQ = supabase
-    .from("calls")
-    .select("id", { count: "exact", head: true })
-    .not("outcome", "in", "(no_answer,voicemail)");
-  let interestedQ = supabase
-    .from("calls")
-    .select("id", { count: "exact", head: true })
-    .in("outcome", ["interested", "booked", "callback"]);
-  let bookedQ = supabase
-    .from("appointments")
-    .select("id", { count: "exact", head: true });
-  let showedQ = supabase
-    .from("appointments")
-    .select("id", { count: "exact", head: true })
-    .eq("status", "showed");
-  let closedQ = supabase
-    .from("leads")
-    .select("id", { count: "exact", head: true })
-    .eq("status", "closed_won");
+  // Cohort funnel: leads created in the period, counted by how far they've progressed
+  const base = () => {
+    let q = supabase.from("leads").select("id", { count: "exact", head: true });
+    if (since) q = q.gte("created_at", since);
+    return q;
+  };
 
-  if (since) {
-    leadsQ = leadsQ.gte("created_at", since);
-    attemptsQ = attemptsQ.gte("updated_at", since);
-    connectedQ = connectedQ.gte("created_at", since);
-    interestedQ = interestedQ.gte("created_at", since);
-    bookedQ = bookedQ.gte("scheduled_at", since);
-    showedQ = showedQ.gte("scheduled_at", since);
-    closedQ = closedQ.gte("updated_at", since);
-  }
-
-  const [leads, attempts, connected, interested, booked, showed, closed] =
+  const [leads, contacted, interested, booked, showed, closed] =
     await Promise.all([
-      leadsQ,
-      attemptsQ,
-      connectedQ,
-      interestedQ,
-      bookedQ,
-      showedQ,
-      closedQ,
+      base(),
+      base().not("status", "eq", "new"),
+      base().in("status", ["interested", "appt_set", "showed", "closed_won"]),
+      base().in("status", ["appt_set", "showed", "closed_won"]),
+      base().in("status", ["showed", "closed_won"]),
+      base().eq("status", "closed_won"),
     ]);
 
   return {
     leads: leads.count ?? 0,
-    attempts: attempts.count ?? 0,
-    connected: connected.count ?? 0,
+    contacted: contacted.count ?? 0,
     interested: interested.count ?? 0,
     booked: booked.count ?? 0,
     showed: showed.count ?? 0,
