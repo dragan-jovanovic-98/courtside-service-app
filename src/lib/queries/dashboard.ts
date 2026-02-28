@@ -85,8 +85,8 @@ export async function getEngagedLeads(
     .eq("status", "interested");
 
   if (since) {
-    bookedQ = bookedQ.gte("updated_at", since);
-    interestedQ = interestedQ.gte("updated_at", since);
+    bookedQ = bookedQ.gte("status_changed_at", since);
+    interestedQ = interestedQ.gte("status_changed_at", since);
   }
 
   const [bookedRes, interestedRes] = await Promise.all([
