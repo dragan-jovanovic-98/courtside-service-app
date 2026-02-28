@@ -88,6 +88,31 @@ export function OrganizationClient({ org }: { org: Organization | null }) {
         placeholder="Select timezone..."
         searchable
       />
+
+      <div className="mb-1 mt-5">
+        <SectionLabel>Revenue Settings</SectionLabel>
+        <p className="mb-3 text-[11px] text-text-dim">
+          Used to calculate estimated revenue on the dashboard.
+        </p>
+      </div>
+      <SettingsField
+        label="Average Order Value ($)"
+        name="averageOrderValue"
+        defaultValue={String(org?.average_order_value ?? 5000)}
+      />
+      <div className="grid grid-cols-2 gap-x-3">
+        <SettingsField
+          label="Booked Close Rate (%)"
+          name="bookedCloseRate"
+          defaultValue={String((org?.booked_close_rate ?? 0.10) * 100)}
+        />
+        <SettingsField
+          label="Interested Close Rate (%)"
+          name="interestedCloseRate"
+          defaultValue={String((org?.interested_close_rate ?? 0.05) * 100)}
+        />
+      </div>
+
       <Button
         type="submit"
         disabled={saving}

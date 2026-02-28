@@ -78,6 +78,9 @@ export async function updateOrganization(formData: FormData) {
       website: formData.get("website") as string,
       address: formData.get("address") as string,
       timezone: formData.get("timezone") as string,
+      average_order_value: Number(formData.get("averageOrderValue")) || 5000,
+      booked_close_rate: (Number(formData.get("bookedCloseRate")) || 10) / 100,
+      interested_close_rate: (Number(formData.get("interestedCloseRate")) || 5) / 100,
     })
     .eq("id", userRow.org_id);
 

@@ -98,6 +98,80 @@ export type Database = {
           },
         ]
       }
+      agent_tool_calls: {
+        Row: {
+          calendar_provider: string | null
+          call_id: string | null
+          campaign_id: string | null
+          created_at: string
+          duration_ms: number | null
+          error: string | null
+          id: string
+          input: Json
+          lead_id: string | null
+          org_id: string
+          output: Json
+          tool_name: string
+        }
+        Insert: {
+          calendar_provider?: string | null
+          call_id?: string | null
+          campaign_id?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          error?: string | null
+          id?: string
+          input?: Json
+          lead_id?: string | null
+          org_id: string
+          output?: Json
+          tool_name: string
+        }
+        Update: {
+          calendar_provider?: string | null
+          call_id?: string | null
+          campaign_id?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          error?: string | null
+          id?: string
+          input?: Json
+          lead_id?: string | null
+          org_id?: string
+          output?: Json
+          tool_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_tool_calls_call_id_fkey"
+            columns: ["call_id"]
+            isOneToOne: false
+            referencedRelation: "calls"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_tool_calls_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_tool_calls_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_tool_calls_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agents: {
         Row: {
           additional_notes: string | null
@@ -513,6 +587,7 @@ export type Database = {
       }
       campaign_appointment_schedules: {
         Row: {
+          buffer_minutes: number | null
           campaign_id: string
           created_at: string
           day_of_week: number
@@ -521,6 +596,7 @@ export type Database = {
           slots: Json
         }
         Insert: {
+          buffer_minutes?: number | null
           campaign_id: string
           created_at?: string
           day_of_week: number
@@ -529,6 +605,7 @@ export type Database = {
           slots?: Json
         }
         Update: {
+          buffer_minutes?: number | null
           campaign_id?: string
           created_at?: string
           day_of_week?: number
@@ -584,15 +661,19 @@ export type Database = {
       campaigns: {
         Row: {
           agent_id: string | null
+          booking_enabled: boolean | null
           bookings: number
           calendar_connection_id: string | null
           calls_connected: number
           calls_made: number
           created_at: string
           daily_call_limit: number | null
+          default_meeting_duration: number | null
           end_date: string | null
           id: string
+          max_advance_days: number | null
           max_retries: number | null
+          min_notice_hours: number | null
           name: string
           org_id: string
           retry_interval_hours: number | null
@@ -604,15 +685,19 @@ export type Database = {
         }
         Insert: {
           agent_id?: string | null
+          booking_enabled?: boolean | null
           bookings?: number
           calendar_connection_id?: string | null
           calls_connected?: number
           calls_made?: number
           created_at?: string
           daily_call_limit?: number | null
+          default_meeting_duration?: number | null
           end_date?: string | null
           id?: string
+          max_advance_days?: number | null
           max_retries?: number | null
+          min_notice_hours?: number | null
           name: string
           org_id: string
           retry_interval_hours?: number | null
@@ -624,15 +709,19 @@ export type Database = {
         }
         Update: {
           agent_id?: string | null
+          booking_enabled?: boolean | null
           bookings?: number
           calendar_connection_id?: string | null
           calls_connected?: number
           calls_made?: number
           created_at?: string
           daily_call_limit?: number | null
+          default_meeting_duration?: number | null
           end_date?: string | null
           id?: string
+          max_advance_days?: number | null
           max_retries?: number | null
+          min_notice_hours?: number | null
           name?: string
           org_id?: string
           retry_interval_hours?: number | null
@@ -1032,6 +1121,7 @@ export type Database = {
           org_id: string
           retry_count: number
           status: Database["public"]["Enums"]["lead_status"]
+          status_changed_at: string | null
           updated_at: string
         }
         Insert: {
@@ -1047,6 +1137,7 @@ export type Database = {
           org_id: string
           retry_count?: number
           status?: Database["public"]["Enums"]["lead_status"]
+          status_changed_at?: string | null
           updated_at?: string
         }
         Update: {
@@ -1062,6 +1153,7 @@ export type Database = {
           org_id?: string
           retry_count?: number
           status?: Database["public"]["Enums"]["lead_status"]
+          status_changed_at?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -1180,12 +1272,15 @@ export type Database = {
       organizations: {
         Row: {
           address: string | null
+          average_order_value: number | null
+          booked_close_rate: number | null
           business_phone: string | null
           business_type: string | null
           country: string | null
           created_at: string
           id: string
           industry: string | null
+          interested_close_rate: number | null
           name: string
           stripe_customer_id: string | null
           timezone: string | null
@@ -1194,12 +1289,15 @@ export type Database = {
         }
         Insert: {
           address?: string | null
+          average_order_value?: number | null
+          booked_close_rate?: number | null
           business_phone?: string | null
           business_type?: string | null
           country?: string | null
           created_at?: string
           id?: string
           industry?: string | null
+          interested_close_rate?: number | null
           name: string
           stripe_customer_id?: string | null
           timezone?: string | null
@@ -1208,12 +1306,15 @@ export type Database = {
         }
         Update: {
           address?: string | null
+          average_order_value?: number | null
+          booked_close_rate?: number | null
           business_phone?: string | null
           business_type?: string | null
           country?: string | null
           created_at?: string
           id?: string
           industry?: string | null
+          interested_close_rate?: number | null
           name?: string
           stripe_customer_id?: string | null
           timezone?: string | null
@@ -1625,6 +1726,10 @@ export type Database = {
         Returns: Json
       }
       is_super_admin: { Args: never; Returns: boolean }
+      should_push_crm_activity: {
+        Args: { _contact_id: string; _org_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
       action_item_type:

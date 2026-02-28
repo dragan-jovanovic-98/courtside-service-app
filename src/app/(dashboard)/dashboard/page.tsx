@@ -7,6 +7,7 @@ import {
   getTodaysAppointments,
   getActionItems,
   getActiveCampaigns,
+  getOrgRevenueSettings,
 } from "@/lib/queries/dashboard";
 import { DashboardClient } from "./_components/dashboard-client";
 
@@ -22,7 +23,7 @@ export default async function DashboardPage({
     ? params.range
     : "7d") as DateRange;
 
-  const [profile, stats, engaged, outcomes, funnel, appointments, actionItems, campaigns] =
+  const [profile, stats, engaged, outcomes, funnel, appointments, actionItems, campaigns, revenueSettings] =
     await Promise.all([
       getUserProfile(),
       getDashboardStats(range),
@@ -32,9 +33,17 @@ export default async function DashboardPage({
       getTodaysAppointments(),
       getActionItems(),
       getActiveCampaigns(),
+      getOrgRevenueSettings(),
     ]);
 
   const firstName = profile?.first_name ?? "there";
+
+  // Compute est. revenue from engaged leads + org close rates
+  const estRevenue = Math.round(
+    (engaged.booked * revenueSettings.bookedCloseRate * revenueSettings.averageOrderValue) +
+    (engaged.interested * revenueSettings.interestedCloseRate * revenueSettings.averageOrderValue)
+  );
+  stats.estRevenue = estRevenue;
 
   return (
     <DashboardClient

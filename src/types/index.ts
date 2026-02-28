@@ -105,6 +105,12 @@ export type DashboardStats = {
   activePipeline: number;
 };
 
+export type OrgRevenueSettings = {
+  averageOrderValue: number;
+  bookedCloseRate: number;
+  interestedCloseRate: number;
+};
+
 export type DashboardAppointment = {
   id: string;
   time: string;

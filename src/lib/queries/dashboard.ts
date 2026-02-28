@@ -7,6 +7,7 @@ import type {
   CallOutcomeCount,
   FunnelData,
   EngagedLeadsData,
+  OrgRevenueSettings,
 } from "@/types";
 import { fullName, formatTime, formatRelativeTime } from "@/lib/format";
 
@@ -59,13 +60,39 @@ export async function getDashboardStats(
     0
   );
   const appointments = apptRes.count ?? 0;
-  const estRevenue = appointments * 3036;
 
   return {
     appointments,
-    estRevenue,
+    estRevenue: 0, // computed in page component using org settings + engaged data
     totalCallSeconds: totalSeconds,
     activePipeline: pipelineRes.count ?? 0,
+  };
+}
+
+export async function getOrgRevenueSettings(): Promise<OrgRevenueSettings> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { averageOrderValue: 5000, bookedCloseRate: 0.10, interestedCloseRate: 0.05 };
+
+  const { data: userRow } = await supabase
+    .from("users")
+    .select("org_id")
+    .eq("id", user.id)
+    .single();
+
+  if (!userRow) return { averageOrderValue: 5000, bookedCloseRate: 0.10, interestedCloseRate: 0.05 };
+
+  const { data: org } = await supabase
+    .from("organizations")
+    .select("average_order_value, booked_close_rate, interested_close_rate")
+    .eq("id", userRow.org_id)
+    .single();
+
+  return {
+    averageOrderValue: org?.average_order_value ?? 5000,
+    bookedCloseRate: org?.booked_close_rate ?? 0.10,
+    interestedCloseRate: org?.interested_close_rate ?? 0.05,
   };
 }
 
