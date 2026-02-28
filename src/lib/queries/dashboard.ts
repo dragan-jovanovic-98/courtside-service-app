@@ -31,8 +31,9 @@ export async function getDashboardStats(
   const since = rangeToDate(range);
 
   let apptQuery = supabase
-    .from("appointments")
-    .select("id", { count: "exact", head: true });
+    .from("leads")
+    .select("id", { count: "exact", head: true })
+    .in("status", ["appt_set", "showed"]);
   let pipelineQuery = supabase
     .from("leads")
     .select("id", { count: "exact", head: true })
@@ -42,7 +43,7 @@ export async function getDashboardStats(
     .select("duration_seconds");
 
   if (since) {
-    apptQuery = apptQuery.gte("scheduled_at", since);
+    apptQuery = apptQuery.gte("status_changed_at", since);
     durationQuery = durationQuery.gte("created_at", since);
   }
 
