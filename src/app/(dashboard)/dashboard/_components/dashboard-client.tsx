@@ -144,11 +144,11 @@ export function DashboardClient({
   const unresolvedCount = actionItems.filter((a) => !resolved[a.id]).length;
   const maxOutcome = Math.max(...outcomes.map((o) => o.count), 1);
 
-  // Engagement percentage
-  const engagedPct =
+  // Booked vs interested split
+  const bookedPct =
     engaged.total > 0
-      ? ((engaged.active + engaged.closed) / engaged.total * 100).toFixed(1)
-      : "0";
+      ? Math.round((engaged.booked / engaged.total) * 100)
+      : 0;
 
   // Funnel values
   const funnelEntries: [string, number, number][] = [
@@ -497,15 +497,14 @@ export function DashboardClient({
               {engaged.total}
             </div>
             <span className="text-xs text-emerald-light opacity-80">
-              {engagedPct}% engaged
+              {bookedPct}% booked
             </span>
           </div>
           <div className="mt-3.5 flex gap-5">
             {(
               [
-                ["New", engaged.new, "text-text-muted"],
-                ["Active", engaged.active, "text-emerald-light"],
-                ["Closed", engaged.closed, "text-blue-light"],
+                ["Booked", engaged.booked, "text-emerald-light"],
+                ["Interested", engaged.interested, "text-blue-light"],
               ] as const
             ).map(([label, val, color]) => (
               <div key={label}>

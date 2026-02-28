@@ -75,40 +75,32 @@ export async function getEngagedLeads(
   const supabase = await createClient();
   const since = rangeToDate(range);
 
-  let newQ = supabase
+  let bookedQ = supabase
     .from("leads")
     .select("id", { count: "exact", head: true })
-    .eq("status", "new");
-  let activeQ = supabase
+    .in("status", ["appt_set", "showed"]);
+  let interestedQ = supabase
     .from("leads")
     .select("id", { count: "exact", head: true })
-    .in("status", ["contacted", "interested", "appt_set", "showed"]);
-  let closedQ = supabase
-    .from("leads")
-    .select("id", { count: "exact", head: true })
-    .in("status", ["closed_won", "closed_lost"]);
+    .eq("status", "interested");
 
   if (since) {
-    newQ = newQ.gte("updated_at", since);
-    activeQ = activeQ.gte("updated_at", since);
-    closedQ = closedQ.gte("updated_at", since);
+    bookedQ = bookedQ.gte("updated_at", since);
+    interestedQ = interestedQ.gte("updated_at", since);
   }
 
-  const [newRes, activeRes, closedRes] = await Promise.all([
-    newQ,
-    activeQ,
-    closedQ,
+  const [bookedRes, interestedRes] = await Promise.all([
+    bookedQ,
+    interestedQ,
   ]);
 
-  const newCount = newRes.count ?? 0;
-  const activeCount = activeRes.count ?? 0;
-  const closedCount = closedRes.count ?? 0;
+  const bookedCount = bookedRes.count ?? 0;
+  const interestedCount = interestedRes.count ?? 0;
 
   return {
-    total: newCount + activeCount + closedCount,
-    new: newCount,
-    active: activeCount,
-    closed: closedCount,
+    total: bookedCount + interestedCount,
+    booked: bookedCount,
+    interested: interestedCount,
   };
 }
 

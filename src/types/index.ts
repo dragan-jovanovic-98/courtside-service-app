@@ -156,9 +156,8 @@ export type FunnelData = {
 
 export type EngagedLeadsData = {
   total: number;
-  new: number;
-  active: number;
-  closed: number;
+  booked: number;
+  interested: number;
 };
 
 export type LeadListItem = {
