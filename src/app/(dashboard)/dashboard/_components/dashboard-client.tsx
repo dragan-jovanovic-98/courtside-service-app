@@ -4,7 +4,6 @@ import { useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Plus,
   CalendarCheck,
   Zap,
   ChevronRight,
@@ -197,14 +196,6 @@ export function DashboardClient({
             })}
           </p>
         </div>
-        <Button
-          asChild
-          className="gap-1.5 bg-emerald-dark text-white hover:bg-emerald-dark/90"
-        >
-          <Link href="/campaigns/new">
-            <Plus size={15} /> New Campaign
-          </Link>
-        </Button>
       </div>
 
       {/* ACTION ZONE */}
