@@ -26,6 +26,10 @@ interface CreateCampaignBody {
   schedules?: ScheduleInput[];
   calendar_connection_id?: string | null;
   appointment_schedules?: ScheduleInput[];
+  booking_enabled?: boolean;
+  default_meeting_duration?: number;
+  max_advance_days?: number;
+  min_notice_hours?: number;
 }
 
 function buildDefaultSchedules(): ScheduleInput[] {
@@ -80,6 +84,10 @@ serve(async (req) => {
         timezone: body.timezone ?? "America/New_York",
         end_date: body.end_date ?? null,
         calendar_connection_id: body.calendar_connection_id ?? null,
+        booking_enabled: body.booking_enabled ?? true,
+        default_meeting_duration: body.default_meeting_duration ?? 30,
+        max_advance_days: body.max_advance_days ?? 14,
+        min_notice_hours: body.min_notice_hours ?? 2,
       })
       .select("id")
       .single();

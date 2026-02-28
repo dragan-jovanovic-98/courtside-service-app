@@ -54,7 +54,7 @@ const STATUS_COLORS: Record<string, BadgeColor> = {
   bad_lead: "red",
 };
 
-const STEPS = ["Select Agent", "Add Leads", "Schedule", "Settings", "Review"];
+const STEPS = ["Select Agent", "Add Leads", "Calling Schedule", "Calendar Setup", "Settings", "Review"];
 
 // Generate time options in 30-min increments (6:00 AM → 11:30 PM)
 const TIME_OPTIONS: string[] = [];
@@ -199,9 +199,13 @@ export function CampaignWizard({
   const [timezone, setTimezone] = useState("America/Toronto");
   const [endDate, setEndDate] = useState("");
 
-  // Step 3: Appointment calendar + availability
+  // Step 4: Calendar setup
   const [calendarConnectionId, setCalendarConnectionId] = useState<string>("default");
   const [apptSchedule, setApptSchedule] = useState<ScheduleDay[]>(makeDefaultApptSchedule);
+  const [bookingEnabled, setBookingEnabled] = useState(true);
+  const [meetingDuration, setMeetingDuration] = useState(30);
+  const [maxAdvanceDays, setMaxAdvanceDays] = useState(14);
+  const [minNoticeHours, setMinNoticeHours] = useState(2);
 
   // Submission state
   const [submitting, setSubmitting] = useState(false);
@@ -354,6 +358,10 @@ export function CampaignWizard({
           schedules: schedulesPayload,
           calendar_connection_id: calendarConnectionId === "default" ? null : calendarConnectionId,
           appointment_schedules: apptSchedulesPayload,
+          booking_enabled: bookingEnabled,
+          default_meeting_duration: meetingDuration,
+          max_advance_days: maxAdvanceDays,
+          min_notice_hours: minNoticeHours,
         }
       );
 
@@ -440,7 +448,7 @@ export function CampaignWizard({
               {step > i + 1 ? <Check size={12} /> : <span>{i + 1}</span>}
               <span>{s}</span>
             </div>
-            {i < 4 && <div className="h-px w-4 bg-border-default" />}
+            {i < STEPS.length - 1 && <div className="h-px w-4 bg-border-default" />}
           </div>
         ))}
       </div>
@@ -620,10 +628,10 @@ export function CampaignWizard({
         </div>
       )}
 
-      {/* Step 3: Schedule */}
+      {/* Step 3: Calling Schedule */}
       {step === 3 && (
         <div>
-          <p className="mb-4 text-[13px] text-text-muted">Set when the AI calls leads and books appointments.</p>
+          <p className="mb-4 text-[13px] text-text-muted">Set when the AI calls leads.</p>
 
           {/* Calling Schedule */}
           <div className="mb-2.5 rounded-xl border border-border-default bg-surface-card p-4">
@@ -733,9 +741,65 @@ export function CampaignWizard({
             </div>
           </div>
 
-          {/* Appointment Calendar */}
+          {/* Timezone */}
           <div className="mb-2.5 rounded-xl border border-border-default bg-surface-card p-4">
-            <SectionLabel>Appointment Calendar</SectionLabel>
+            <SectionLabel>Timezone</SectionLabel>
+            <Combobox
+              options={[
+                { value: "America/Toronto", label: "EST — Eastern" },
+                { value: "America/Chicago", label: "CST — Central" },
+                { value: "America/Denver", label: "MST — Mountain" },
+                { value: "America/Los_Angeles", label: "PST — Pacific" },
+              ]}
+              value={timezone}
+              onValueChange={setTimezone}
+              placeholder="Select timezone..."
+              searchPlaceholder="Search timezones..."
+              size="sm"
+            />
+          </div>
+
+          <Button
+            onClick={() => setStep(4)}
+            className="w-full justify-center bg-emerald-dark text-white hover:bg-emerald-dark/90"
+          >
+            Continue
+          </Button>
+        </div>
+      )}
+
+      {/* Step 4: Calendar Setup */}
+      {step === 4 && (
+        <div>
+          <p className="mb-4 text-[13px] text-text-muted">Configure appointment booking and availability.</p>
+
+          {/* Booking Enabled Toggle */}
+          <div className="mb-2.5 rounded-xl border border-border-default bg-surface-card p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-semibold text-text-primary">Allow AI to book appointments</div>
+                <div className="mt-0.5 text-[11px] text-text-dim">
+                  When off, the AI will note the prospect&apos;s preferred time but won&apos;t create the appointment automatically.
+                </div>
+              </div>
+              <div
+                onClick={() => setBookingEnabled(!bookingEnabled)}
+                className={cn(
+                  "relative h-[22px] w-[42px] shrink-0 cursor-pointer rounded-full transition-colors",
+                  bookingEnabled ? "bg-emerald-dark" : "bg-[rgba(255,255,255,0.08)]"
+                )}
+              >
+                <div
+                  className="absolute top-[3px] size-4 rounded-full bg-white transition-[left]"
+                  style={{ left: bookingEnabled ? 22 : 3 }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Calendar Connection */}
+          <div className="mb-2.5 rounded-xl border border-border-default bg-surface-card p-4">
+            <SectionLabel>Calendar Connection</SectionLabel>
             <p className="mb-2 text-[11px] text-text-dim">
               Select which calendar to check for availability and book appointments to.
             </p>
@@ -838,8 +902,50 @@ export function CampaignWizard({
             </div>
           </div>
 
+          {/* Booking Settings */}
+          <div className="mb-2.5 grid grid-cols-3 gap-2.5">
+            <div className="rounded-xl border border-border-default bg-surface-card p-4">
+              <div className="mb-1 text-[11px] text-text-dim">Meeting Duration</div>
+              <Select value={String(meetingDuration)} onValueChange={(v) => setMeetingDuration(Number(v))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="15">15 min</SelectItem>
+                  <SelectItem value="30">30 min</SelectItem>
+                  <SelectItem value="45">45 min</SelectItem>
+                  <SelectItem value="60">60 min</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="rounded-xl border border-border-default bg-surface-card p-4">
+              <div className="text-[11px] text-text-dim">Max Days in Advance</div>
+              <input
+                type="number"
+                value={maxAdvanceDays}
+                onChange={(e) => setMaxAdvanceDays(Number(e.target.value) || 0)}
+                min={1}
+                max={90}
+                className="mt-1 w-full bg-transparent text-xl font-bold text-text-primary outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              />
+              <div className="mt-0.5 text-[10px] text-text-faint">How far out to book</div>
+            </div>
+            <div className="rounded-xl border border-border-default bg-surface-card p-4">
+              <div className="text-[11px] text-text-dim">Min Notice Hours</div>
+              <input
+                type="number"
+                value={minNoticeHours}
+                onChange={(e) => setMinNoticeHours(Number(e.target.value) || 0)}
+                min={0}
+                max={72}
+                className="mt-1 w-full bg-transparent text-xl font-bold text-text-primary outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              />
+              <div className="mt-0.5 text-[10px] text-text-faint">Minimum lead time</div>
+            </div>
+          </div>
+
           <Button
-            onClick={() => setStep(4)}
+            onClick={() => setStep(5)}
             className="w-full justify-center bg-emerald-dark text-white hover:bg-emerald-dark/90"
           >
             Continue
@@ -847,8 +953,8 @@ export function CampaignWizard({
         </div>
       )}
 
-      {/* Step 4: Settings */}
-      {step === 4 && (
+      {/* Step 5: Settings */}
+      {step === 5 && (
         <div>
           <p className="mb-4 text-[13px] text-text-muted">Configure campaign limits and preferences.</p>
 
@@ -875,37 +981,19 @@ export function CampaignWizard({
             </div>
           </div>
 
-          <div className="mb-2.5 grid grid-cols-2 gap-2.5">
-            <div className="rounded-xl border border-border-default bg-surface-card p-4">
-              <div className="mb-1 text-[11px] text-text-dim">Timezone</div>
-              <Combobox
-                options={[
-                  { value: "America/Toronto", label: "EST — Eastern" },
-                  { value: "America/Chicago", label: "CST — Central" },
-                  { value: "America/Denver", label: "MST — Mountain" },
-                  { value: "America/Los_Angeles", label: "PST — Pacific" },
-                ]}
-                value={timezone}
-                onValueChange={setTimezone}
-                placeholder="Select timezone..."
-                searchPlaceholder="Search timezones..."
-                size="sm"
-              />
-            </div>
-            <div className="rounded-xl border border-border-default bg-surface-card p-4">
-              <div className="mb-1 text-[11px] text-text-dim">End Date</div>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full rounded-md border border-border-default bg-surface-input px-2 py-1.5 text-sm text-text-primary [color-scheme:dark]"
-              />
-              <div className="mt-0.5 text-[10px] text-text-faint">{endDate ? "" : "Optional — leave blank for ongoing"}</div>
-            </div>
+          <div className="mb-2.5 rounded-xl border border-border-default bg-surface-card p-4">
+            <div className="mb-1 text-[11px] text-text-dim">End Date</div>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="w-full rounded-md border border-border-default bg-surface-input px-2 py-1.5 text-sm text-text-primary [color-scheme:dark]"
+            />
+            <div className="mt-0.5 text-[10px] text-text-faint">{endDate ? "" : "Optional — leave blank for ongoing"}</div>
           </div>
 
           <Button
-            onClick={() => setStep(5)}
+            onClick={() => setStep(6)}
             className="w-full justify-center bg-emerald-dark text-white hover:bg-emerald-dark/90"
           >
             Continue
@@ -913,8 +1001,8 @@ export function CampaignWizard({
         </div>
       )}
 
-      {/* Step 5: Review */}
-      {step === 5 && (
+      {/* Step 6: Review */}
+      {step === 6 && (
         <div>
           <p className="mb-4 text-[13px] text-text-muted">Review and launch.</p>
           <div className="mb-4 rounded-xl border border-border-default bg-surface-card p-5">
@@ -923,13 +1011,17 @@ export function CampaignWizard({
                 ["Campaign", campaignName || "—"],
                 ["Agent", agents.find((a) => a.id === agentId)?.name || "—"],
                 ["Leads", [csvRowCount > 0 ? `${csvRowCount} CSV` : "", crmImportCount > 0 ? `${crmImportCount} CRM` : "", selectedContactIds.size > 0 ? `${selectedContactIds.size} existing` : ""].filter(Boolean).join(" + ") || "None"],
-                ["Schedule", activeDays || "None"],
-                ["Limit", `${dailyLimit}/day`],
-                ["Retries", `${maxRetries} per lead`],
+                ["Calling Schedule", activeDays || "None"],
                 ["Timezone", timezone.split("/")[1]?.replace("_", " ") ?? timezone],
-                ["End Date", endDate || "None"],
+                ["Booking", bookingEnabled ? "Enabled" : "Disabled"],
                 ["Appt Calendar", calendarConnectionId && calendarConnectionId !== "default" ? calendarOptions.find((c) => c.id === calendarConnectionId)?.label ?? "External" : "Courtside"],
                 ["Appt Hours", apptActiveDays || "None"],
+                ["Meeting Duration", `${meetingDuration} min`],
+                ["Max Advance", `${maxAdvanceDays} days`],
+                ["Min Notice", `${minNoticeHours} hrs`],
+                ["Limit", `${dailyLimit}/day`],
+                ["Retries", `${maxRetries} per lead`],
+                ["End Date", endDate || "None"],
               ] as const).map(([label, val]) => (
                 <div key={label}>
                   <span className="block text-[11px] text-text-dim">{label}</span>
