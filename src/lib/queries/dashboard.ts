@@ -37,7 +37,7 @@ export async function getDashboardStats(
   let pipelineQuery = supabase
     .from("leads")
     .select("id", { count: "exact", head: true })
-    .in("status", ["new", "contacted", "interested", "appt_set", "showed"]);
+    .in("status", ["new", "contacted"]);
   let durationQuery = supabase
     .from("calls")
     .select("duration_seconds");

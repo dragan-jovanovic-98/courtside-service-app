@@ -471,9 +471,9 @@ export function DashboardClient({
           accent={tokens.amber}
         />
         <StatCard
-          label="Active Pipeline"
+          label="Callable Leads"
           value={stats.activePipeline}
-          subtitle="total leads"
+          subtitle="new & contacted"
           icon={<Target size={14} />}
           accent={tokens.purple}
         />
