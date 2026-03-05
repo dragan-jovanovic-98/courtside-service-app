@@ -805,6 +805,7 @@ export type Database = {
       contacts: {
         Row: {
           company: string | null
+          cooldown_until: string | null
           created_at: string
           crm_provider: string | null
           crm_record_id: string | null
@@ -820,6 +821,7 @@ export type Database = {
         }
         Insert: {
           company?: string | null
+          cooldown_until?: string | null
           created_at?: string
           crm_provider?: string | null
           crm_record_id?: string | null
@@ -835,6 +837,7 @@ export type Database = {
         }
         Update: {
           company?: string | null
+          cooldown_until?: string | null
           created_at?: string
           crm_provider?: string | null
           crm_record_id?: string | null
@@ -1273,6 +1276,7 @@ export type Database = {
         Row: {
           address: string | null
           average_order_value: number | null
+          billing_email: string | null
           booked_close_rate: number | null
           business_phone: string | null
           business_type: string | null
@@ -1282,6 +1286,7 @@ export type Database = {
           industry: string | null
           interested_close_rate: number | null
           name: string
+          primary_email: string | null
           stripe_customer_id: string | null
           timezone: string | null
           updated_at: string
@@ -1290,6 +1295,7 @@ export type Database = {
         Insert: {
           address?: string | null
           average_order_value?: number | null
+          billing_email?: string | null
           booked_close_rate?: number | null
           business_phone?: string | null
           business_type?: string | null
@@ -1299,6 +1305,7 @@ export type Database = {
           industry?: string | null
           interested_close_rate?: number | null
           name: string
+          primary_email?: string | null
           stripe_customer_id?: string | null
           timezone?: string | null
           updated_at?: string
@@ -1307,6 +1314,7 @@ export type Database = {
         Update: {
           address?: string | null
           average_order_value?: number | null
+          billing_email?: string | null
           booked_close_rate?: number | null
           business_phone?: string | null
           business_type?: string | null
@@ -1316,6 +1324,7 @@ export type Database = {
           industry?: string | null
           interested_close_rate?: number | null
           name?: string
+          primary_email?: string | null
           stripe_customer_id?: string | null
           timezone?: string | null
           updated_at?: string

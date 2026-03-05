@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { ColoredBadge } from "@/components/ui/colored-badge";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { SectionLabel } from "@/components/ui/section-label";
 import { tokens } from "@/lib/design-tokens";
+import { createClient } from "@/lib/supabase/client";
 
 type Subscription = {
   plan: string | null;
@@ -78,6 +80,9 @@ export function BillingClient({
   phoneNumbers: PhoneNumber[];
   usage: Usage;
 }) {
+  const [portalLoading, setPortalLoading] = useState(false);
+  const [portalError, setPortalError] = useState<string | null>(null);
+
   const planName = subscription?.plan ?? "Free";
   const planStatus = subscription?.status ?? "none";
   const renewalDate = formatDate(subscription?.current_period_end ?? null);
@@ -243,12 +248,57 @@ export function BillingClient({
       </div>
 
       {/* Stripe portal link */}
-      <div className="cursor-not-allowed rounded-xl border border-border-default bg-surface-card p-3.5 text-center opacity-50">
+      <button
+        onClick={async () => {
+          setPortalLoading(true);
+          setPortalError(null);
+          try {
+            const supabase = createClient();
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) throw new Error("Not authenticated");
+
+            const res = await fetch(
+              `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/stripe-portal-url`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${session.access_token}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ return_url: window.location.href }),
+              }
+            );
+
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({ error: "Failed to open billing portal" }));
+              throw new Error(err.error || `Error ${res.status}`);
+            }
+
+            const { url } = await res.json();
+            window.location.href = url;
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : "Something went wrong";
+            setPortalError(message);
+            setPortalLoading(false);
+          }
+        }}
+        disabled={portalLoading || !subscription}
+        className={`w-full rounded-xl border border-border-default bg-surface-card p-3.5 text-center transition-colors ${
+          !subscription
+            ? "cursor-not-allowed opacity-50"
+            : "hover:border-emerald-light/30 hover:bg-surface-hover"
+        }`}
+      >
         <span className="text-[13px] text-text-muted">
-          Open Stripe Billing Portal &rarr;
+          {portalLoading ? "Opening…" : "Manage Billing & Invoices →"}
         </span>
-        <div className="mt-0.5 text-[10px] text-text-dim">Coming soon</div>
-      </div>
+        {!subscription && (
+          <div className="mt-0.5 text-[10px] text-text-dim">Requires active subscription</div>
+        )}
+        {portalError && (
+          <div className="mt-1 text-[11px] text-red-light">{portalError}</div>
+        )}
+      </button>
     </div>
   );
 }

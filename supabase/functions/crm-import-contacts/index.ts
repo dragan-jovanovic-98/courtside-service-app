@@ -230,7 +230,7 @@ async function upsertContacts(
       let contactId: string;
 
       if (existing) {
-        // Update existing contact
+        // Update existing contact — clear cooldown so they're immediately callable
         await supabase
           .from("contacts")
           .update({
@@ -240,6 +240,7 @@ async function upsertContacts(
             company: hc.properties.company || null,
             crm_provider: "hubspot",
             crm_record_id: hc.id,
+            cooldown_until: null,
           })
           .eq("id", existing.id);
 

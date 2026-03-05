@@ -6,6 +6,17 @@ import { jsonResponse, errorResponse } from "../_shared/response.ts";
 // ── Constants ──────────────────────────────────────────────────────
 
 const MAX_ORG_CONCURRENCY = 8;
+const COOLDOWN_MONTHS = 6;
+
+// Outcomes that trigger cooldown (unreached / negative)
+const COOLDOWN_OUTCOMES = new Set([
+  "voicemail",
+  "no_answer",
+  "not_interested",
+]);
+
+// Outcomes that mean the lead is truly bad (no cooldown, permanent bad_lead)
+const BAD_LEAD_OUTCOMES = new Set(["wrong_number", "dnc"]);
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -77,6 +88,12 @@ function getStartOfDayInTimezone(timezone: string): string {
   return now.toISOString();
 }
 
+function getCooldownUntil(): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() + COOLDOWN_MONTHS);
+  return d.toISOString();
+}
+
 // ── Main handler ───────────────────────────────────────────────────
 // Called by N8N cron every 2 minutes. Uses service role auth.
 // Returns a list of leads to call, grouped by campaign.
@@ -106,6 +123,7 @@ serve(async (req) => {
     }
 
     const supabase = createServiceClient();
+    const nowIso = new Date().toISOString();
 
     // ── Get all active campaigns ──
     const { data: campaigns, error: campError } = await supabase
@@ -254,7 +272,8 @@ serve(async (req) => {
 
         // ── Select eligible leads ──
         // Eligible: status in (new, contacted), retry_count < max_retries,
-        // and last_activity_at is either null or older than retry_interval_hours
+        // last_activity_at is either null or older than retry_interval_hours,
+        // AND contact is not in cooldown
         const retryIntervalMs =
           (campaign.retry_interval_hours ?? 24) * 60 * 60 * 1000;
         const retryThreshold = new Date(
@@ -265,10 +284,11 @@ serve(async (req) => {
         // Query leads that are eligible for calling
         // We need: status in (new, contacted), retry_count < max_retries
         // AND (last_activity_at IS NULL OR last_activity_at < retryThreshold)
+        // Contact cooldown is checked in the post-filter loop below
         const { data: eligibleLeads, error: leadsError } = await supabase
           .from("leads")
           .select(
-            "id, contact_id, retry_count, status, contacts(id, phone, first_name, last_name, is_dnc)"
+            "id, contact_id, retry_count, status, contacts(id, phone, first_name, last_name, is_dnc, cooldown_until)"
           )
           .eq("campaign_id", campaign.id)
           .eq("org_id", orgId)
@@ -277,7 +297,7 @@ serve(async (req) => {
           .or(`last_activity_at.is.null,last_activity_at.lt.${retryThreshold}`)
           .order("retry_count", { ascending: true }) // New leads first (0 retries)
           .order("created_at", { ascending: true }) // Then oldest first
-          .limit(batchSize);
+          .limit(batchSize * 2); // Fetch extra to account for cooldown filtering
 
         if (leadsError) {
           console.error(
@@ -295,19 +315,24 @@ serve(async (req) => {
           continue;
         }
 
-        // Filter out DNC contacts (belt + suspenders — DNC should be checked,
-        // but contacts.is_dnc is a fast pre-filter)
+        // Filter out DNC contacts and contacts in cooldown
         const leadsToCall: LeadToCall[] = [];
         for (const lead of eligibleLeads) {
+          if (leadsToCall.length >= batchSize) break;
+
           const contact = lead.contacts as unknown as {
             id: string;
             phone: string;
             first_name: string;
             last_name: string | null;
             is_dnc: boolean;
+            cooldown_until: string | null;
           };
 
           if (!contact || !contact.phone || contact.is_dnc) continue;
+
+          // Skip contacts in cooldown
+          if (contact.cooldown_until && contact.cooldown_until > nowIso) continue;
 
           leadsToCall.push({
             lead_id: lead.id,
@@ -336,29 +361,70 @@ serve(async (req) => {
       }
     }
 
-    // ── Auto-update leads that have exceeded max retries ──
-    // Find leads in active campaigns where retry_count >= max_retries
-    // and status is still 'new' or 'contacted' — mark them as 'bad_lead'
+    // ── Handle leads that have exceeded max retries ──
+    // Instead of marking all as bad_lead, we now differentiate:
+    // - wrong_number / DNC → bad_lead (permanent)
+    // - voicemail / no_answer / not_interested → set cooldown on contact (6 months)
+    // - other outcomes (callback, interested) → leave as-is (shouldn't be exhausted)
     for (const campaign of campaigns) {
       const maxRetries = campaign.max_retries ?? 3;
 
       const { data: exhaustedLeads } = await supabase
         .from("leads")
-        .select("id")
+        .select("id, contact_id, last_call_outcome")
         .eq("campaign_id", campaign.id)
         .in("status", ["new", "contacted"])
         .gte("retry_count", maxRetries)
-        .limit(100);
+        .limit(200);
 
-      if (exhaustedLeads && exhaustedLeads.length > 0) {
-        const ids = exhaustedLeads.map((l: { id: string }) => l.id);
+      if (!exhaustedLeads || exhaustedLeads.length === 0) continue;
+
+      const badLeadIds: string[] = [];
+      const cooldownContactIds: string[] = [];
+      const cooldownLeadIds: string[] = [];
+
+      for (const lead of exhaustedLeads) {
+        const outcome = lead.last_call_outcome;
+
+        if (outcome && BAD_LEAD_OUTCOMES.has(outcome)) {
+          // Truly bad lead — mark permanently
+          badLeadIds.push(lead.id);
+        } else if (!outcome || COOLDOWN_OUTCOMES.has(outcome)) {
+          // Unreached / negative — cooldown the contact
+          cooldownContactIds.push(lead.contact_id);
+          cooldownLeadIds.push(lead.id);
+        }
+        // else: positive outcomes like callback/interested — leave as-is
+      }
+
+      // Mark truly bad leads
+      if (badLeadIds.length > 0) {
         await supabase
           .from("leads")
           .update({
             status: "bad_lead",
             updated_at: new Date().toISOString(),
           })
-          .in("id", ids);
+          .in("id", badLeadIds);
+      }
+
+      // Set cooldown on contacts and update lead status
+      if (cooldownContactIds.length > 0) {
+        const cooldownUntil = getCooldownUntil();
+
+        // Set cooldown on contacts (org-wide effect)
+        const uniqueContactIds = [...new Set(cooldownContactIds)];
+        await supabase
+          .from("contacts")
+          .update({ cooldown_until: cooldownUntil })
+          .in("id", uniqueContactIds);
+
+        // Mark these leads as contacted (they stay contactable after cooldown)
+        // but don't change status if already contacted
+        await supabase
+          .from("leads")
+          .update({ updated_at: new Date().toISOString() })
+          .in("id", cooldownLeadIds);
       }
     }
 

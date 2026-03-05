@@ -39,26 +39,17 @@ export async function getDashboardStats(
     .from("leads")
     .select("id", { count: "exact", head: true })
     .in("status", ["new", "contacted"]);
-  let durationQuery = supabase
-    .from("calls")
-    .select("duration_seconds");
-
   if (since) {
     apptQuery = apptQuery.gte("status_changed_at", since);
-    durationQuery = durationQuery.gte("created_at", since);
   }
 
   const [apptRes, pipelineRes, durationRes] = await Promise.all([
     apptQuery,
     pipelineQuery,
-    durationQuery,
+    supabase.rpc("sum_call_duration", { since: since ?? undefined }),
   ]);
 
-  const totalSeconds = (durationRes.data ?? []).reduce(
-    (sum: number, r: { duration_seconds: number | null }) =>
-      sum + (r.duration_seconds ?? 0),
-    0
-  );
+  const totalSeconds = (durationRes.data as number) ?? 0;
   const appointments = apptRes.count ?? 0;
 
   return {

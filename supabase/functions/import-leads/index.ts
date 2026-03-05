@@ -128,6 +128,7 @@ serve(async (req) => {
       }
 
       // Upsert contact (unique on org_id + phone — RLS scopes to org)
+      // Clear cooldown_until so manually-added contacts are immediately callable
       const { data: contact, error: contactError } = await supabase
         .from("contacts")
         .upsert(
@@ -139,6 +140,7 @@ serve(async (req) => {
             email: row.email || null,
             company: row.company || null,
             source: row.source || null,
+            cooldown_until: null,
           },
           { onConflict: "org_id,phone" }
         )
