@@ -322,7 +322,7 @@ export function BillingClient({
                   {formatCurrency(inv.amount)}
                 </span>
                 <ColoredBadge
-                  color={inv.status === "paid" ? "emerald" : inv.status === "failed" ? "red" : "amber"}
+                  color={inv.status === "paid" ? "emerald" : inv.status === "failed" ? "red" : inv.status === "voided" ? "default" : "amber"}
                 >
                   {inv.status}
                 </ColoredBadge>

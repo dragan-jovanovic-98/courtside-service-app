@@ -67,6 +67,18 @@ export async function POST(request: NextRequest) {
         break;
       }
 
+      case "invoice.created":
+      case "invoice.updated":
+      case "invoice.voided": {
+        const inv = event.data.object as Stripe.Invoice;
+        const mappedStatus = inv.status === "paid" ? "paid"
+          : inv.status === "void" ? "voided"
+          : inv.status === "uncollectible" ? "failed"
+          : "pending";
+        await handleInvoice(supabase, inv, mappedStatus);
+        break;
+      }
+
       case "invoice.paid": {
         await handleInvoice(supabase, event.data.object as Stripe.Invoice, "paid");
         break;
@@ -188,7 +200,7 @@ async function handleSubscriptionDeleted(
 async function handleInvoice(
   supabase: ReturnType<typeof getSupabaseClient>,
   invoice: Stripe.Invoice,
-  status: "paid" | "failed"
+  status: "paid" | "failed" | "pending" | "voided"
 ) {
   const org = await lookupOrgByCustomer(supabase, invoice.customer);
   if (!org) return;
