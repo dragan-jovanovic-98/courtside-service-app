@@ -3,20 +3,60 @@ import type { LeadListItem, TimelineEvent, LeadWithDetails, LeadCallItem } from 
 import { fullName } from "@/lib/format";
 import { formatRelativeTime, formatDateShort, formatDuration } from "@/lib/format";
 
-export async function getLeads(): Promise<LeadListItem[]> {
-  const supabase = await createClient();
+export interface LeadFilters {
+  status?: string;
+  outcome?: string;
+  source?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
 
-  const { data } = await supabase
+export async function getLeads(
+  filters: LeadFilters = {}
+): Promise<{ data: LeadListItem[]; totalCount: number }> {
+  const supabase = await createClient();
+  const page = filters.page ?? 1;
+  const pageSize = filters.pageSize ?? 100;
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  // Use inner join for contacts when searching to filter at the DB level
+  const contactsJoin = filters.search
+    ? "contacts!inner(first_name, last_name, phone, email, company, crm_provider, crm_record_id)"
+    : "contacts(first_name, last_name, phone, email, company, crm_provider, crm_record_id)";
+
+  let query = supabase
     .from("leads")
     .select(
-      "id, contact_id, campaign_id, status, last_call_outcome, last_activity_at, import_source, contacts(first_name, last_name, phone, email, company, crm_provider, crm_record_id), campaigns(name, agent_id)"
-    )
+      `id, contact_id, campaign_id, status, last_call_outcome, last_activity_at, import_source, ${contactsJoin}, campaigns(name, agent_id)`,
+      { count: "exact" }
+    );
+
+  // Server-side filters
+  if (filters.status && filters.status !== "all") {
+    query = query.eq("status", filters.status);
+  }
+  if (filters.outcome && filters.outcome !== "all") {
+    query = query.eq("last_call_outcome", filters.outcome);
+  }
+  if (filters.source && filters.source !== "all") {
+    query = query.eq("import_source", filters.source);
+  }
+  if (filters.search) {
+    query = query.or(
+      `first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,phone.ilike.%${filters.search}%,email.ilike.%${filters.search}%,company.ilike.%${filters.search}%`,
+      { referencedTable: "contacts" }
+    );
+  }
+
+  const { data, count } = await query
     .order("last_activity_at", { ascending: false, nullsFirst: false })
-    .limit(100);
+    .range(from, to);
 
-  if (!data) return [];
+  if (!data) return { data: [], totalCount: 0 };
 
-  return data.map((row: Record<string, unknown>) => {
+  const mapped = data.map((row: Record<string, unknown>) => {
     const contact = row.contacts as {
       first_name: string;
       last_name: string | null;
@@ -48,6 +88,8 @@ export async function getLeads(): Promise<LeadListItem[]> {
       crmRecordId: contact?.crm_record_id ?? null,
     };
   });
+
+  return { data: mapped, totalCount: count ?? 0 };
 }
 
 export async function getLeadById(

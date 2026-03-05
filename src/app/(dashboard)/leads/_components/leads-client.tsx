@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   ChevronLeft,
+  ChevronRight,
   Phone,
   Mail,
   User,
@@ -67,6 +68,36 @@ const OUTCOMES = [
   "Wrong Number",
   "DNC",
 ] as const;
+
+// Map display labels to database values for filters
+const STATUS_DB_VALUES: Record<string, string> = {
+  New: "new",
+  Contacted: "contacted",
+  Interested: "interested",
+  "Appt Set": "appt_set",
+  Showed: "showed",
+  "Closed Won": "closed_won",
+  "Closed Lost": "closed_lost",
+  "Bad Lead": "bad_lead",
+};
+
+const OUTCOME_DB_VALUES: Record<string, string> = {
+  Booked: "booked",
+  Interested: "interested",
+  Callback: "callback",
+  Voicemail: "voicemail",
+  "No Answer": "no_answer",
+  "Not Interested": "not_interested",
+  "Wrong Number": "wrong_number",
+  DNC: "dnc",
+};
+
+const SOURCE_DB_VALUES: Record<string, string> = {
+  "CSV Import": "csv",
+  "CRM Import": "crm_import",
+  Manual: "manual",
+  Inbound: "inbound",
+};
 
 const timelineIcon = (type: "call" | "sms" | "email") => {
   const map = {
@@ -571,24 +602,29 @@ function sourceBadgeColor(source: string | null): BadgeColor {
   }
 }
 
+const PAGE_SIZE = 100;
+
 export function LeadsClient({
   leads,
   stats,
   campaigns,
   hasCrm = false,
   initialDetailId = null,
+  totalCount = 0,
+  currentPage = 1,
+  currentFilters = { status: "all", outcome: "all", source: "all", search: "" },
 }: {
   leads: LeadListItem[];
   stats: { total: number; followUps: number; appointments: number; new: number };
   campaigns: { id: string; name: string }[];
   hasCrm?: boolean;
   initialDetailId?: string | null;
+  totalCount?: number;
+  currentPage?: number;
+  currentFilters?: { status: string; outcome: string; source: string; search: string };
 }) {
   const router = useRouter();
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [outcomeFilter, setOutcomeFilter] = useState("all");
-  const [sourceFilter, setSourceFilter] = useState("all");
+  const searchParams = useSearchParams();
   const [detailId, setDetailId] = useState<string | null>(initialDetailId);
   const [timeline] = useState<TimelineEvent[]>([]);
   const [showImport, setShowImport] = useState(false);
@@ -596,26 +632,91 @@ export function LeadsClient({
   const [showCrmImport, setShowCrmImport] = useState(false);
   const [leadCalls, setLeadCalls] = useState<LeadCallItem[]>([]);
   const [loadingCalls, setLoadingCalls] = useState(false);
+  const [searchInput, setSearchInput] = useState(currentFilters.search);
+  const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const filtered = leads.filter((l) => {
-    const matchesSearch =
-      !query ||
-      (l.name + l.phone + (l.email ?? "") + (l.company ?? ""))
-        .toLowerCase()
-        .includes(query.toLowerCase());
-    const matchesStatus =
-      statusFilter === "all" ||
-      l.status.toLowerCase().replace(/ /g, "_") ===
-        statusFilter.toLowerCase().replace(/ /g, "_");
-    const matchesOutcome =
-      outcomeFilter === "all" ||
-      (l.outcome &&
-        outcomeKey(l.outcome) === outcomeKey(outcomeFilter));
-    const matchesSource =
-      sourceFilter === "all" ||
-      sourceLabel(l.source).toLowerCase() === sourceFilter.toLowerCase().replace(/ import/g, "");
-    return matchesSearch && matchesStatus && matchesOutcome && matchesSource;
-  });
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+
+  // Build URL with filter params
+  const buildUrl = useCallback(
+    (overrides: Record<string, string | undefined>) => {
+      const params = new URLSearchParams(searchParams.toString());
+      // Remove page when filters change (unless page is explicitly set)
+      if (!("page" in overrides)) {
+        params.delete("page");
+      }
+      // Remove detail id when navigating
+      params.delete("id");
+
+      for (const [key, value] of Object.entries(overrides)) {
+        if (!value || value === "all" || value === "") {
+          params.delete(key);
+        } else {
+          params.set(key, value);
+        }
+      }
+      const qs = params.toString();
+      return `/leads${qs ? `?${qs}` : ""}`;
+    },
+    [searchParams]
+  );
+
+  // Convert display label to db value for filters
+  const handleStatusChange = useCallback(
+    (displayValue: string) => {
+      const dbValue = displayValue === "all" ? undefined : STATUS_DB_VALUES[displayValue] ?? displayValue;
+      router.push(buildUrl({ status: dbValue }));
+    },
+    [router, buildUrl]
+  );
+
+  const handleOutcomeChange = useCallback(
+    (displayValue: string) => {
+      const dbValue = displayValue === "all" ? undefined : OUTCOME_DB_VALUES[displayValue] ?? displayValue;
+      router.push(buildUrl({ outcome: dbValue }));
+    },
+    [router, buildUrl]
+  );
+
+  const handleSourceChange = useCallback(
+    (displayValue: string) => {
+      const dbValue = displayValue === "all" ? undefined : SOURCE_DB_VALUES[displayValue] ?? displayValue;
+      router.push(buildUrl({ source: dbValue }));
+    },
+    [router, buildUrl]
+  );
+
+  const handleSearchChange = useCallback(
+    (value: string) => {
+      setSearchInput(value);
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+      searchTimerRef.current = setTimeout(() => {
+        router.push(buildUrl({ search: value || undefined }));
+      }, 400);
+    },
+    [router, buildUrl]
+  );
+
+  const handlePageChange = useCallback(
+    (newPage: number) => {
+      router.push(buildUrl({ page: newPage > 1 ? String(newPage) : undefined }));
+    },
+    [router, buildUrl]
+  );
+
+  // Reverse-map db values to display labels for the dropdowns
+  const currentStatusDisplay =
+    currentFilters.status === "all"
+      ? "all"
+      : Object.entries(STATUS_DB_VALUES).find(([, v]) => v === currentFilters.status)?.[0] ?? "all";
+  const currentOutcomeDisplay =
+    currentFilters.outcome === "all"
+      ? "all"
+      : Object.entries(OUTCOME_DB_VALUES).find(([, v]) => v === currentFilters.outcome)?.[0] ?? "all";
+  const currentSourceDisplay =
+    currentFilters.source === "all"
+      ? "all"
+      : Object.entries(SOURCE_DB_VALUES).find(([, v]) => v === currentFilters.source)?.[0] ?? "all";
 
   const handleModalSuccess = () => {
     setShowImport(false);
@@ -645,7 +746,7 @@ export function LeadsClient({
       return null;
     }
 
-    const handleStatusChange = async (newStatus: string) => {
+    const handleLeadStatusChange = async (newStatus: string) => {
       await updateLeadStatus(lead.id, newStatus.toLowerCase().replace(/ /g, "_"));
     };
 
@@ -718,7 +819,7 @@ export function LeadsClient({
 
               {lead.status === "interested" && (
                 <Button
-                  onClick={() => handleStatusChange("appt_set")}
+                  onClick={() => handleLeadStatusChange("appt_set")}
                   className="mb-2 w-full justify-center gap-1.5 bg-emerald-dark text-xs text-white hover:bg-emerald-dark/90"
                 >
                   <CalendarCheck size={12} /> Mark as Booked
@@ -726,7 +827,7 @@ export function LeadsClient({
               )}
               {lead.status === "appt_set" && (
                 <Button
-                  onClick={() => handleStatusChange("showed")}
+                  onClick={() => handleLeadStatusChange("showed")}
                   className="mb-2 w-full justify-center gap-1.5 bg-emerald-dark text-xs text-white hover:bg-emerald-dark/90"
                 >
                   <Check size={12} /> Mark as Showed
@@ -735,13 +836,13 @@ export function LeadsClient({
               {lead.status === "showed" && (
                 <div className="mb-2 flex flex-col gap-1.5">
                   <Button
-                    onClick={() => handleStatusChange("closed_won")}
+                    onClick={() => handleLeadStatusChange("closed_won")}
                     className="w-full justify-center gap-1 bg-emerald-dark text-xs text-white hover:bg-emerald-dark/90"
                   >
                     <Check size={12} /> Closed Won
                   </Button>
                   <Button
-                    onClick={() => handleStatusChange("closed_lost")}
+                    onClick={() => handleLeadStatusChange("closed_lost")}
                     className="w-full justify-center gap-1 border border-border-default bg-surface-card text-xs text-red-light hover:bg-surface-card-hover"
                   >
                     <XCircle size={12} /> Closed Lost
@@ -750,7 +851,7 @@ export function LeadsClient({
               )}
               {lead.status === "contacted" && (
                 <Button
-                  onClick={() => handleStatusChange("interested")}
+                  onClick={() => handleLeadStatusChange("interested")}
                   className="mb-2 w-full justify-center gap-1.5 bg-emerald-dark text-xs text-white hover:bg-emerald-dark/90"
                 >
                   <TrendingUp size={12} /> Mark Interested
@@ -759,7 +860,7 @@ export function LeadsClient({
 
               <Select
                 defaultValue={lead.status}
-                onValueChange={handleStatusChange}
+                onValueChange={handleLeadStatusChange}
               >
                 <SelectTrigger size="sm">
                   <SelectValue />
@@ -991,34 +1092,34 @@ export function LeadsClient({
             className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim"
           />
           <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            value={searchInput}
+            onChange={(e) => handleSearchChange(e.target.value)}
             placeholder="Search name, phone, email..."
             className="border-border-default bg-surface-input pl-[34px] text-text-primary placeholder:text-text-dim"
           />
         </div>
         <DropdownSelect
           label="Status"
-          value={statusFilter}
+          value={currentStatusDisplay}
           options={[...STATUSES]}
-          onChange={setStatusFilter}
+          onChange={handleStatusChange}
         />
         <DropdownSelect
           label="Outcome"
-          value={outcomeFilter}
+          value={currentOutcomeDisplay}
           options={[...OUTCOMES]}
-          onChange={setOutcomeFilter}
+          onChange={handleOutcomeChange}
         />
         <DropdownSelect
           label="Source"
-          value={sourceFilter}
+          value={currentSourceDisplay}
           options={[...SOURCES]}
-          onChange={setSourceFilter}
+          onChange={handleSourceChange}
         />
       </div>
 
       {/* Leads table */}
-      {leads.length === 0 ? (
+      {leads.length === 0 && currentFilters.status === "all" && currentFilters.outcome === "all" && currentFilters.source === "all" && !currentFilters.search ? (
         <EmptyState
           icon={Users}
           title="No leads yet"
@@ -1050,14 +1151,14 @@ export function LeadsClient({
             </tr>
           </thead>
           <tbody>
-            {filtered.length > 0 ? (
-              filtered.map((l, i) => (
+            {leads.length > 0 ? (
+              leads.map((l, i) => (
                 <tr
                   key={l.id}
                   onClick={() => setDetailId(l.id)}
                   className={cn(
                     "cursor-pointer transition-colors hover:bg-[rgba(255,255,255,0.02)]",
-                    i < filtered.length - 1 && "border-b border-border-light"
+                    i < leads.length - 1 && "border-b border-border-light"
                   )}
                 >
                   <td className="px-4 py-2.5">
@@ -1114,6 +1215,38 @@ export function LeadsClient({
             )}
           </tbody>
         </table>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between border-t border-border-default px-4 py-3">
+            <div className="text-xs text-text-dim">
+              Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, totalCount)} of {totalCount}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={currentPage <= 1}
+                onClick={() => handlePageChange(currentPage - 1)}
+                className="gap-1"
+              >
+                <ChevronLeft size={14} /> Prev
+              </Button>
+              <span className="text-xs text-text-muted">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={currentPage >= totalPages}
+                onClick={() => handlePageChange(currentPage + 1)}
+                className="gap-1"
+              >
+                Next <ChevronRight size={14} />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
       )}
     </div>

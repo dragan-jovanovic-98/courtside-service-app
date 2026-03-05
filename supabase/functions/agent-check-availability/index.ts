@@ -450,21 +450,31 @@ serve(async (req) => {
       }
     }
 
-    // Fetch all Courtside appointments for the date range
+    // Fetch all Courtside appointments and calendar blocks for the date range
     let courtsideAppointments: Array<{ scheduled_at: string; duration_minutes: number | null }> = [];
+    let calendarBlocks: Array<{ starts_at: string; ends_at: string }> = [];
     if (datesToSearch.length > 0) {
       const rangeStart = `${datesToSearch[0]}T00:00:00`;
       const rangeEnd = `${datesToSearch[datesToSearch.length - 1]}T23:59:59`;
 
-      const { data: appts } = await supabase
-        .from("appointments")
-        .select("scheduled_at, duration_minutes")
-        .eq("org_id", org_id)
-        .neq("status", "cancelled")
-        .gte("scheduled_at", rangeStart)
-        .lte("scheduled_at", rangeEnd);
+      const [apptResult, blocksResult] = await Promise.all([
+        supabase
+          .from("appointments")
+          .select("scheduled_at, duration_minutes")
+          .eq("org_id", org_id)
+          .neq("status", "cancelled")
+          .gte("scheduled_at", rangeStart)
+          .lte("scheduled_at", rangeEnd),
+        supabase
+          .from("calendar_blocks")
+          .select("starts_at, ends_at")
+          .eq("org_id", org_id)
+          .gte("ends_at", rangeStart)
+          .lte("starts_at", rangeEnd),
+      ]);
 
-      courtsideAppointments = appts ?? [];
+      courtsideAppointments = apptResult.data ?? [];
+      calendarBlocks = blocksResult.data ?? [];
     }
 
     // Convert Courtside appointments to busy periods
@@ -474,9 +484,15 @@ serve(async (req) => {
       return { start, end };
     });
 
+    // Convert calendar blocks to busy periods
+    const blocksBusy: BusyPeriod[] = calendarBlocks.map((block) => ({
+      start: new Date(block.starts_at),
+      end: new Date(block.ends_at),
+    }));
+
     // Merge all busy periods and apply buffer
     const allBusy = applyBuffer(
-      [...externalBusyPeriods, ...courtsideBusy],
+      [...externalBusyPeriods, ...courtsideBusy, ...blocksBusy],
       bufferMinutes
     );
 

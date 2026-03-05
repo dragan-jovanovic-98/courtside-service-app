@@ -509,7 +509,7 @@ This is sent by the N8N appointment reminders workflow directly via the SendGrid
             </td>
           </tr>
         </table>
-      </td>
+      </td>Importing leads looks odd; it is too faint. The background is clear for the overlay.
     </tr>
   </table>
 </body>

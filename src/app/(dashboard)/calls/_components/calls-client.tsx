@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   ChevronLeft,
+  ChevronRight,
   Phone,
   User,
   Search,
@@ -31,6 +33,17 @@ const OUTCOMES = [
   "DNC",
 ] as const;
 
+const OUTCOME_DB_VALUES: Record<string, string> = {
+  Booked: "booked",
+  Interested: "interested",
+  Callback: "callback",
+  Voicemail: "voicemail",
+  "No Answer": "no_answer",
+  "Not Interested": "not_interested",
+  "Wrong Number": "wrong_number",
+  DNC: "dnc",
+};
+
 function DirIcon({ dir, size = 11 }: { dir: string; size?: number }) {
   return dir === "inbound" ? (
     <ArrowDownLeft size={size} className="text-blue-light" />
@@ -43,38 +56,99 @@ function outcomeKey(outcome: string): string {
   return outcome.toLowerCase().replace(/ /g, "_");
 }
 
+const PAGE_SIZE = 100;
+
 export function CallsClient({
   calls,
   stats,
   initialDetailId = null,
+  totalCount = 0,
+  currentPage = 1,
+  campaignNames = [],
+  currentFilters = { outcome: "all", campaign: "all", direction: "all", search: "" },
 }: {
   calls: CallListItem[];
   stats: { total: number; today: number; connected: number; booked: number };
   initialDetailId?: string | null;
+  totalCount?: number;
+  currentPage?: number;
+  campaignNames?: string[];
+  currentFilters?: { outcome: string; campaign: string; direction: string; search: string };
 }) {
-  const [query, setQuery] = useState("");
-  const [outcomeFilter, setOutcomeFilter] = useState("all");
-  const [campaignFilter, setCampaignFilter] = useState("all");
-  const [dirFilter, setDirFilter] = useState("all");
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [detailId, setDetailId] = useState<string | null>(initialDetailId);
+  const [searchInput, setSearchInput] = useState(currentFilters.search);
+  const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const campaigns = [
-    ...new Set(calls.map((c) => c.campaign).filter((c) => c !== "—")),
-  ];
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
-  const filtered = calls.filter((c) => {
-    const matchesSearch =
-      !query ||
-      (c.name + c.outcome + c.campaign + c.phone)
-        .toLowerCase()
-        .includes(query.toLowerCase());
-    const matchesOutcome =
-      outcomeFilter === "all" || outcomeKey(c.outcome) === outcomeKey(outcomeFilter);
-    const matchesCampaign =
-      campaignFilter === "all" || c.campaign === campaignFilter;
-    const matchesDir = dirFilter === "all" || c.direction === dirFilter;
-    return matchesSearch && matchesOutcome && matchesCampaign && matchesDir;
-  });
+  const buildUrl = useCallback(
+    (overrides: Record<string, string | undefined>) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (!("page" in overrides)) {
+        params.delete("page");
+      }
+      params.delete("id");
+
+      for (const [key, value] of Object.entries(overrides)) {
+        if (!value || value === "all" || value === "") {
+          params.delete(key);
+        } else {
+          params.set(key, value);
+        }
+      }
+      const qs = params.toString();
+      return `/calls${qs ? `?${qs}` : ""}`;
+    },
+    [searchParams]
+  );
+
+  const handleOutcomeChange = useCallback(
+    (displayValue: string) => {
+      const dbValue = displayValue === "all" ? undefined : OUTCOME_DB_VALUES[displayValue] ?? displayValue;
+      router.push(buildUrl({ outcome: dbValue }));
+    },
+    [router, buildUrl]
+  );
+
+  const handleCampaignChange = useCallback(
+    (value: string) => {
+      router.push(buildUrl({ campaign: value === "all" ? undefined : value }));
+    },
+    [router, buildUrl]
+  );
+
+  const handleDirChange = useCallback(
+    (value: string) => {
+      router.push(buildUrl({ direction: value === "all" ? undefined : value }));
+    },
+    [router, buildUrl]
+  );
+
+  const handleSearchChange = useCallback(
+    (value: string) => {
+      setSearchInput(value);
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+      searchTimerRef.current = setTimeout(() => {
+        router.push(buildUrl({ search: value || undefined }));
+      }, 400);
+    },
+    [router, buildUrl]
+  );
+
+  const handlePageChange = useCallback(
+    (newPage: number) => {
+      router.push(buildUrl({ page: newPage > 1 ? String(newPage) : undefined }));
+    },
+    [router, buildUrl]
+  );
+
+  // Reverse-map db values to display labels
+  const currentOutcomeDisplay =
+    currentFilters.outcome === "all"
+      ? "all"
+      : Object.entries(OUTCOME_DB_VALUES).find(([, v]) => v === currentFilters.outcome)?.[0] ?? "all";
 
   // Detail View
   if (detailId) {
@@ -235,35 +309,35 @@ export function CallsClient({
             className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim"
           />
           <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search name, phone number, outcome..."
+            value={searchInput}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            placeholder="Search name, phone number..."
             className="border-border-default bg-surface-input pl-[34px] text-text-primary placeholder:text-text-dim"
           />
         </div>
         <DropdownSelect
           label="Direction"
-          value={dirFilter}
+          value={currentFilters.direction}
           options={["outbound", "inbound"]}
-          onChange={setDirFilter}
+          onChange={handleDirChange}
           allLabel="All"
         />
         <DropdownSelect
           label="Outcome"
-          value={outcomeFilter}
+          value={currentOutcomeDisplay}
           options={[...OUTCOMES]}
-          onChange={setOutcomeFilter}
+          onChange={handleOutcomeChange}
         />
         <DropdownSelect
           label="Campaign"
-          value={campaignFilter}
-          options={campaigns}
-          onChange={setCampaignFilter}
+          value={currentFilters.campaign}
+          options={campaignNames}
+          onChange={handleCampaignChange}
         />
       </div>
 
       {/* Calls table */}
-      {calls.length === 0 ? (
+      {calls.length === 0 && currentFilters.outcome === "all" && currentFilters.campaign === "all" && currentFilters.direction === "all" && !currentFilters.search ? (
         <EmptyState
           icon={Phone}
           title="No calls yet"
@@ -302,14 +376,14 @@ export function CallsClient({
             </tr>
           </thead>
           <tbody>
-            {filtered.length > 0 ? (
-              filtered.map((c, i) => (
+            {calls.length > 0 ? (
+              calls.map((c, i) => (
                 <tr
                   key={c.id}
                   onClick={() => setDetailId(c.id)}
                   className={cn(
                     "cursor-pointer transition-colors hover:bg-[rgba(255,255,255,0.02)]",
-                    i < filtered.length - 1 && "border-b border-border-light"
+                    i < calls.length - 1 && "border-b border-border-light"
                   )}
                 >
                   <td className="py-2.5 pl-3 pr-2">
@@ -363,6 +437,38 @@ export function CallsClient({
             )}
           </tbody>
         </table>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between border-t border-border-default px-4 py-3">
+            <div className="text-xs text-text-dim">
+              Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, totalCount)} of {totalCount}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={currentPage <= 1}
+                onClick={() => handlePageChange(currentPage - 1)}
+                className="gap-1"
+              >
+                <ChevronLeft size={14} /> Prev
+              </Button>
+              <span className="text-xs text-text-muted">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={currentPage >= totalPages}
+                onClick={() => handlePageChange(currentPage + 1)}
+                className="gap-1"
+              >
+                Next <ChevronRight size={14} />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
       )}
     </div>
