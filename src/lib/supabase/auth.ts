@@ -70,6 +70,24 @@ export async function signUp(formData: FormData) {
     return { error: setupError.message };
   }
 
+  // Create Stripe customer (non-blocking — signup succeeds even if this fails)
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.access_token) {
+    fetch(
+      `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/create-stripe-customer`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: "{}",
+      }
+    ).catch(() => {
+      // Silently ignore — user can still use the app without Stripe customer
+    });
+  }
+
   redirect("/dashboard");
 }
 
