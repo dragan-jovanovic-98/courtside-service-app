@@ -74,11 +74,13 @@ export function BillingClient({
   invoices,
   phoneNumbers,
   usage,
+  hasStripeCustomer,
 }: {
   subscription: Subscription;
   invoices: Invoice[];
   phoneNumbers: PhoneNumber[];
   usage: Usage;
+  hasStripeCustomer: boolean;
 }) {
   const [portalLoading, setPortalLoading] = useState(false);
   const [portalError, setPortalError] = useState<string | null>(null);
@@ -282,9 +284,9 @@ export function BillingClient({
             setPortalLoading(false);
           }
         }}
-        disabled={portalLoading || !subscription}
+        disabled={portalLoading || !hasStripeCustomer}
         className={`w-full rounded-xl border border-border-default bg-surface-card p-3.5 text-center transition-colors ${
-          !subscription
+          !hasStripeCustomer
             ? "cursor-not-allowed opacity-50"
             : "hover:border-emerald-light/30 hover:bg-surface-hover"
         }`}
@@ -292,8 +294,8 @@ export function BillingClient({
         <span className="text-[13px] text-text-muted">
           {portalLoading ? "Opening…" : "Manage Billing & Invoices →"}
         </span>
-        {!subscription && (
-          <div className="mt-0.5 text-[10px] text-text-dim">Requires active subscription</div>
+        {!hasStripeCustomer && (
+          <div className="mt-0.5 text-[10px] text-text-dim">No billing account linked</div>
         )}
         {portalError && (
           <div className="mt-1 text-[11px] text-red-light">{portalError}</div>

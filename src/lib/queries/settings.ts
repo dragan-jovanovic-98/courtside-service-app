@@ -106,6 +106,13 @@ export async function getBillingData() {
 
   if (!userRow) return null;
 
+  // Check if org has a Stripe customer
+  const { data: org } = await supabase
+    .from("organizations")
+    .select("stripe_customer_id")
+    .eq("id", userRow.org_id)
+    .single();
+
   // Get active subscription
   const { data: subscription } = await supabase
     .from("subscriptions")
@@ -158,6 +165,7 @@ export async function getBillingData() {
       callMinutes: totalCallMinutes,
       phoneNumberCount: phoneNumbers?.length ?? 0,
     },
+    hasStripeCustomer: !!org?.stripe_customer_id,
   };
 }
 

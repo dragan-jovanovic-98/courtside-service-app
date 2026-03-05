@@ -9,6 +9,7 @@ export default async function BillingPage() {
       invoices={data?.invoices ?? []}
       phoneNumbers={data?.phoneNumbers ?? []}
       usage={data?.usage ?? { callMinutes: 0, phoneNumberCount: 0 }}
+      hasStripeCustomer={data?.hasStripeCustomer ?? false}
     />
   );
 }
