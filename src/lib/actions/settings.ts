@@ -51,6 +51,30 @@ export async function updateNotificationPreferences(preferences: Record<string, 
   return { success: true };
 }
 
+export async function changePassword(currentPassword: string, newPassword: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user || !user.email) return { error: "Not authenticated" };
+
+  // Verify current password by attempting a sign-in
+  const { error: signInError } = await supabase.auth.signInWithPassword({
+    email: user.email,
+    password: currentPassword,
+  });
+
+  if (signInError) return { error: "Current password is incorrect" };
+
+  // Update to new password
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+
+  if (error) return { error: error.message };
+
+  return { success: true };
+}
+
 export async function updateOrganization(formData: FormData) {
   const supabase = await createClient();
   const {

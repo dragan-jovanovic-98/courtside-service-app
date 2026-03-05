@@ -5,7 +5,7 @@ import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SectionLabel } from "@/components/ui/section-label";
 import { Combobox } from "@/components/ui/combobox";
-import { updateProfile, updateNotificationPreferences } from "@/lib/actions/settings";
+import { updateProfile, updateNotificationPreferences, changePassword } from "@/lib/actions/settings";
 import type { User, Organization, NotificationPreference, Json } from "@/types";
 
 type ProfileWithOrg = User & { organizations: Organization } | null;
@@ -168,6 +168,9 @@ export function ProfileClient({
         </Button>
       </form>
 
+      {/* Change Password */}
+      <ChangePasswordSection />
+
       {/* Notification Preferences */}
       <div className="rounded-xl border border-border-default bg-surface-card p-6">
         <SectionLabel>Notification Preferences</SectionLabel>
@@ -240,6 +243,100 @@ export function ProfileClient({
         </Button>
       </div>
     </div>
+  );
+}
+
+function ChangePasswordSection() {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMessage(null);
+
+    if (newPassword.length < 8) {
+      setMessage({ type: "error", text: "New password must be at least 8 characters" });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setMessage({ type: "error", text: "Passwords do not match" });
+      return;
+    }
+
+    setSaving(true);
+    const result = await changePassword(currentPassword, newPassword);
+    setSaving(false);
+
+    if (result.error) {
+      setMessage({ type: "error", text: result.error });
+    } else {
+      setMessage({ type: "success", text: "Password updated successfully" });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    }
+  };
+
+  return (
+    <form
+      onSubmit={handleChangePassword}
+      className="mb-4 rounded-xl border border-border-default bg-surface-card p-6"
+    >
+      <SectionLabel>Change Password</SectionLabel>
+      <div className="mt-2">
+        <div className="mb-3.5">
+          <label className="mb-1 block text-xs font-medium text-text-dim">
+            Current Password
+          </label>
+          <input
+            type="password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            required
+            className="w-full rounded-lg border border-border-default bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-[13px] text-text-primary outline-none"
+          />
+        </div>
+        <div className="mb-3.5">
+          <label className="mb-1 block text-xs font-medium text-text-dim">
+            New Password
+          </label>
+          <input
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            required
+            className="w-full rounded-lg border border-border-default bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-[13px] text-text-primary outline-none"
+          />
+        </div>
+        <div className="mb-3.5">
+          <label className="mb-1 block text-xs font-medium text-text-dim">
+            Confirm New Password
+          </label>
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            required
+            className="w-full rounded-lg border border-border-default bg-[rgba(255,255,255,0.04)] px-3 py-[9px] text-[13px] text-text-primary outline-none"
+          />
+        </div>
+      </div>
+      {message && (
+        <p className={`mb-3 text-xs ${message.type === "error" ? "text-red-400" : "text-emerald-light"}`}>
+          {message.text}
+        </p>
+      )}
+      <Button
+        type="submit"
+        disabled={saving}
+        className="bg-emerald-dark text-white hover:bg-emerald-dark/90"
+      >
+        {saving ? "Updating..." : "Update Password"}
+      </Button>
+    </form>
   );
 }
 

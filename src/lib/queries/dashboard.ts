@@ -46,7 +46,7 @@ export async function getDashboardStats(
   const [apptRes, pipelineRes, durationRes] = await Promise.all([
     apptQuery,
     pipelineQuery,
-    supabase.rpc("sum_call_duration", { since: since ?? undefined }),
+    supabase.rpc("sum_call_duration", since ? { since } : {}),
   ]);
 
   const totalSeconds = (durationRes.data as number) ?? 0;
