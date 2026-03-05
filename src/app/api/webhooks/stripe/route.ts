@@ -129,14 +129,22 @@ async function handleSubscriptionUpsert(
 
   // Extract plan name and period dates from the first line item
   const firstItem = subscription.items.data[0];
-  const planName = firstItem?.price?.nickname
-    ?? firstItem?.price?.product?.toString()
-    ?? null;
+  const planName = subscription.metadata?.tier
+    ? subscription.metadata.tier.charAt(0).toUpperCase() + subscription.metadata.tier.slice(1)
+    : firstItem?.price?.nickname
+      ?? firstItem?.price?.product?.toString()
+      ?? null;
   const periodStart = firstItem?.current_period_start
     ? new Date(firstItem.current_period_start * 1000).toISOString()
     : null;
   const periodEnd = firstItem?.current_period_end
     ? new Date(firstItem.current_period_end * 1000).toISOString()
+    : null;
+
+  // Extract price and minutes from metadata or price object
+  const priceMonthly = firstItem?.price?.unit_amount ?? null;
+  const minutesIncluded = subscription.metadata?.minutes_included
+    ? parseInt(subscription.metadata.minutes_included, 10)
     : null;
 
   const { error } = await supabase
@@ -146,6 +154,8 @@ async function handleSubscriptionUpsert(
         org_id: org.id,
         stripe_subscription_id: subscription.id,
         plan_name: planName,
+        price_monthly: priceMonthly,
+        call_minutes_limit: minutesIncluded ?? 5000,
         status: mapSubscriptionStatus(subscription.status),
         current_period_start: periodStart,
         current_period_end: periodEnd,

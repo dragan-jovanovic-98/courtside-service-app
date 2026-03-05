@@ -109,7 +109,7 @@ export async function getBillingData() {
   // Check if org has a Stripe customer
   const { data: org } = await supabase
     .from("organizations")
-    .select("stripe_customer_id")
+    .select("stripe_customer_id, country")
     .eq("id", userRow.org_id)
     .single();
 
@@ -166,6 +166,7 @@ export async function getBillingData() {
       phoneNumberCount: phoneNumbers?.length ?? 0,
     },
     hasStripeCustomer: !!org?.stripe_customer_id,
+    country: org?.country ?? "CA",
   };
 }
 

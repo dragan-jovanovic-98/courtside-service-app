@@ -79,6 +79,21 @@ export default function SignupPage() {
         </div>
 
         <div className="space-y-2">
+          <Label htmlFor="country" className="text-text-muted">
+            Country
+          </Label>
+          <select
+            id="country"
+            name="country"
+            defaultValue="CA"
+            className="w-full rounded-md border border-border-default bg-surface-input px-3 py-2 text-sm text-text-primary"
+          >
+            <option value="CA">Canada</option>
+            <option value="US">United States</option>
+          </select>
+        </div>
+
+        <div className="space-y-2">
           <Label htmlFor="email" className="text-text-muted">
             Email
           </Label>

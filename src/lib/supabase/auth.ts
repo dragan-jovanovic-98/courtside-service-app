@@ -34,6 +34,7 @@ export async function signUp(formData: FormData) {
   const firstName = formData.get("firstName") as string;
   const lastName = formData.get("lastName") as string;
   const orgName = formData.get("orgName") as string;
+  const country = (formData.get("country") as string) || "CA";
 
   const supabase = await createClient();
 
@@ -64,6 +65,7 @@ export async function signUp(formData: FormData) {
     p_first_name: firstName,
     p_last_name: lastName || "",
     p_org_name: orgName,
+    p_country: country,
   });
 
   if (setupError) {
